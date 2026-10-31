@@ -3,3 +3,5 @@ node_modules/
 *.log
 _shot-*.png
 data/.raw-cache.json
+_live.png
+_site/
