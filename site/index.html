@@ -182,10 +182,10 @@
   const REPO = CFG.repo || 'your-username/pgrefuge-forum'
   const CATEGORY = CFG.category || '经历'
   // GitHub 的 /discussions/new?category= 认的是分类 slug，不是显示名。
-  // ASCII 分类的 slug 是小写转写（General → general），中文分类则等于
-  // URL 编码后的名字。同步脚本会把真实 slug 写进 posts.json，
-  // 这里优先用它，没有再退回显示名（中文场景下两者一致）。
-  let CATEGORY_SLUG = CATEGORY
+  // 中文分类的 slug 由 GitHub 转成拼音（经历 → jingli），
+  // 所以显示名和 slug 必须分开配。
+  // 优先用同步脚本写进 posts.json 的真实 slug，没有则用 config 里的兜底值。
+  let CATEGORY_SLUG = CFG.categorySlug || CATEGORY
   const NEW_DISCUSSION = 'https://github.com/' + REPO +
     '/discussions/new?category=' + encodeURIComponent(CATEGORY_SLUG)
 
