@@ -1,0 +1,346 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PGrefuge · 研究生庇护所</title>
+<meta name="description" content="面向在校研究生的匿名倾诉社区。服务端强制脱敏，不采集任何身份信息。">
+<style>
+  :root {
+    --bg: #F5F0EB; --paper: #FBF8F4; --card: #FAF7F3;
+    --ink: #4A443E; --soft: #857C73; --light: #AEA69C; --line: #E5DED6;
+    --pink: #D4C5C0; --blue: #B8C5D6; --green: #B5C4B1; --yellow: #D4C5A0;
+    --accent: #9B8E82; --ok: #5A7A5E;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: -apple-system, "PingFang SC", "Microsoft YaHei", "Helvetica Neue", sans-serif;
+    background: var(--bg); color: var(--ink); line-height: 1.75;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: 720px; margin: 0 auto; padding: 0 20px 90px; }
+
+  header {
+    padding: 44px 0 26px; border-bottom: 1px solid var(--line); margin-bottom: 30px;
+  }
+  .logo { font-size: 24px; font-weight: 500; letter-spacing: -0.01em; }
+  .tagline { font-size: 14px; color: var(--soft); margin-top: 6px; }
+  .privacy {
+    display: inline-block; margin-top: 14px; font-size: 12px; color: var(--ok);
+    background: rgba(181,196,177,0.2); border: 1px solid var(--green);
+    padding: 5px 12px; border-radius: 16px;
+  }
+
+  .tabs { display: flex; gap: 8px; margin-bottom: 22px; flex-wrap: wrap; }
+  .tab {
+    font-size: 13px; padding: 6px 15px; border-radius: 18px; cursor: pointer;
+    border: 1px solid var(--line); background: var(--paper); color: var(--soft);
+    transition: all .15s; user-select: none;
+  }
+  .tab:hover { border-color: var(--accent); }
+  .tab.active { background: var(--ink); color: var(--paper); border-color: var(--ink); }
+
+  .btn-primary {
+    display: block; width: 100%; text-align: center; background: var(--ink); color: var(--paper);
+    padding: 13px; border-radius: 10px; text-decoration: none; font-size: 15px;
+    margin-bottom: 26px; border: 1px solid var(--ink);
+  }
+  .btn-primary:hover { opacity: .88; }
+
+  .post {
+    background: var(--paper); border: 1px solid var(--line); border-radius: 12px;
+    padding: 18px 20px; margin-bottom: 14px; cursor: pointer; transition: border-color .15s;
+  }
+  .post:hover { border-color: var(--accent); }
+  .post-meta { display: flex; align-items: center; gap: 9px; margin-bottom: 9px; flex-wrap: wrap; }
+  .tag {
+    font-size: 11px; padding: 2px 9px; border-radius: 10px; color: var(--ink);
+  }
+  .tag.pink { background: rgba(212,197,192,.55); }
+  .tag.blue { background: rgba(184,197,214,.55); }
+  .tag.green { background: rgba(181,196,177,.55); }
+  .tag.yellow { background: rgba(212,197,160,.55); }
+  .author { font-size: 12px; color: var(--soft); }
+  .time { font-size: 12px; color: var(--light); margin-left: auto; }
+  .post-title { font-size: 16px; font-weight: 500; margin-bottom: 6px; }
+  .post-excerpt { font-size: 14px; color: var(--soft); line-height: 1.7; }
+  .post-foot { display: flex; gap: 16px; font-size: 12px; color: var(--light); margin-top: 11px; }
+
+  .empty {
+    text-align: center; padding: 52px 24px; color: var(--light); font-size: 14px;
+    background: var(--paper); border: 1px dashed var(--line); border-radius: 12px;
+  }
+
+  .hit-note {
+    font-size: 11px; color: var(--ok); background: rgba(181,196,177,0.16);
+    border-radius: 5px; padding: 2px 7px; display: inline-block; margin-top: 8px;
+  }
+
+  /* ---------- 详情弹层 ---------- */
+  .modal-mask {
+    position: fixed; inset: 0; background: rgba(60,54,48,.45);
+    display: none; z-index: 50; padding: 24px 16px; overflow-y: auto;
+  }
+  .modal-mask.show { display: flex; align-items: flex-start; justify-content: center; }
+  .modal {
+    background: var(--paper); border-radius: 14px; max-width: 640px; width: 100%;
+    padding: 26px 28px; margin-top: 20px; border: 1px solid var(--line);
+  }
+  .modal-close {
+    float: right; font-size: 22px; color: var(--light); cursor: pointer;
+    line-height: 1; margin-left: 12px;
+  }
+  .modal-close:hover { color: var(--ink); }
+  .modal h2 { font-size: 19px; font-weight: 500; margin-bottom: 10px; }
+  .modal-body { font-size: 15px; line-height: 1.85; white-space: pre-wrap; margin: 14px 0 20px; }
+  .cmt { border-top: 1px solid var(--line); padding: 14px 0; }
+  .cmt-head { font-size: 12px; color: var(--soft); margin-bottom: 6px; }
+  .cmt-content { font-size: 14px; line-height: 1.75; }
+  .cmt-strategy {
+    display: inline-block; font-size: 11px; padding: 2px 9px; border-radius: 10px;
+    background: rgba(181,196,177,.5); margin-top: 7px;
+  }
+  .no-cmt { font-size: 13px; color: var(--light); padding: 18px 0; }
+
+  /* ---------- 发帖说明 ---------- */
+  .guide {
+    background: var(--card); border-left: 3px solid var(--blue); border-radius: 0 8px 8px 0;
+    padding: 16px 20px; font-size: 14px; color: var(--soft); margin-bottom: 26px;
+  }
+  .guide b { color: var(--ink); font-weight: 500; }
+  .guide ol { padding-left: 20px; margin: 10px 0 0; }
+  .guide li { margin-bottom: 6px; }
+  .guide code {
+    background: rgba(0,0,0,.05); padding: 1px 5px; border-radius: 4px;
+    font-size: 13px; font-family: ui-monospace, Menlo, Consolas, monospace;
+  }
+
+  footer {
+    border-top: 1px solid var(--line); padding-top: 22px; margin-top: 40px;
+    font-size: 12px; color: var(--light);
+  }
+  footer a { color: var(--accent); }
+
+  @media (max-width: 560px) {
+    .wrap { padding: 0 16px 70px; }
+    header { padding-top: 30px; }
+    .logo { font-size: 21px; }
+    .modal { padding: 20px 18px; }
+    .time { margin-left: 0; width: 100%; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <div class="logo">PGrefuge</div>
+    <div class="tagline">研究生庇护所 · 说出那些没处说的事</div>
+    <div class="privacy">服务端强制脱敏 · 不采集任何身份信息</div>
+  </header>
+
+  <div class="guide">
+    <b>怎么发帖</b>
+    <ol>
+      <li>点下面的「写经历」，在 GitHub 上新建一个讨论主题</li>
+      <li>标题写成 <code>你的处境 [压榨]</code>，标签可选：压榨 / PUA / 谩骂 / 人格污蔑 / Push / 其他</li>
+      <li>正文写下你的经历。<b>不用自己打码</b> —— 学校、学院、导师姓名会由服务端自动替换成「某校」「某老师」</li>
+      <li>想看别人的回应，去该主题的评论区留言即可</li>
+    </ol>
+  </div>
+
+  <a class="btn-primary" id="newPost" href="#" target="_blank" rel="noopener">写经历</a>
+
+  <div class="tabs">
+    <div class="tab active" data-sort="latest">最新</div>
+    <div class="tab" data-sort="hot">最热</div>
+    <div class="tab" data-tag="all">全部类型</div>
+  </div>
+
+  <div id="list"></div>
+
+  <footer>
+    <span id="stat"></span><br>
+    <a href="#" id="repoLink" target="_blank" rel="noopener">在 GitHub 上查看全部讨论</a>
+  </footer>
+</div>
+
+<div class="modal-mask" id="mask">
+  <div class="modal">
+    <span class="modal-close" id="close">&times;</span>
+    <div id="modalContent"></div>
+  </div>
+</div>
+
+<script src="config.js"></script>
+<script>
+(function () {
+  const CFG = window.PG_CONFIG || {}
+  const REPO = CFG.repo || 'your-username/pgrefuge-forum'
+  const CATEGORY = CFG.category || '经历'
+  const NEW_DISCUSSION = 'https://github.com/' + REPO +
+    '/discussions/new?category=' + encodeURIComponent(CATEGORY)
+
+  const state = { posts: [], sort: 'latest', tag: 'all' }
+
+  const STRATEGY_LABEL = {
+    avoid: '忍一忍', reduce: '硬刚回去', transfer: '找人帮忙', escape: '溜之大吉'
+  }
+  const TAG_CLASS = {
+    '压榨': 'pink', 'PUA': 'blue', '谩骂': 'green',
+    '人格污蔑': 'yellow', 'Push': 'pink', '其他': 'blue'
+  }
+
+  function ago(iso) {
+    if (!iso) return ''
+    const d = new Date(iso)
+    const s = (Date.now() - d.getTime()) / 1000
+    if (s < 60) return '刚刚'
+    if (s < 3600) return Math.floor(s / 60) + '分钟前'
+    if (s < 86400) return Math.floor(s / 3600) + '小时前'
+    if (s < 86400 * 30) return Math.floor(s / 86400) + '天前'
+    return (d.getMonth() + 1) + '月' + d.getDate() + '日'
+  }
+
+  function esc(s) {
+    return String(s == null ? '' : s)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+  }
+
+  function excerpt(text, n) {
+    const t = String(text || '').replace(/^策略[:：].*$/m, '').replace(/^>.*$/gm, '')
+    return t.length > n ? t.slice(0, n) + '…' : t
+  }
+
+  function render() {
+    const box = document.getElementById('list')
+    let list = state.posts.slice()
+
+    if (state.tag !== 'all') {
+      list = list.filter(function (p) { return p.tag === state.tag })
+    }
+    if (state.sort === 'latest') {
+      list.sort(function (a, b) { return new Date(b.createdAt) - new Date(a.createdAt) })
+    } else {
+      list.sort(function (a, b) {
+        return (b.commentCount + (b.reactions || 0)) - (a.commentCount + (a.reactions || 0))
+      })
+    }
+
+    if (!list.length) {
+      box.innerHTML = '<div class="empty">' +
+        (state.posts.length
+          ? '这个标签下还没有内容，换一个看看。'
+          : '还没有人发帖。<br><br>你可能是第一个 —— 点上面「写经历」。') +
+        '</div>'
+      return
+    }
+
+    box.innerHTML = list.map(function (p, i) {
+      const hit = p.hitLabels && p.hitLabels.length
+        ? '<div class="hit-note">已脱敏：' + esc(p.hitLabels.join('、')) + '</div>'
+        : ''
+      return '<div class="post" data-i="' + state.posts.indexOf(p) + '">' +
+        '<div class="post-meta">' +
+          '<span class="tag ' + (TAG_CLASS[p.tag] || 'blue') + '">' + esc(p.tag) + '</span>' +
+          '<span class="author">来自 · ' + esc(p.alias) + '</span>' +
+          '<span class="time">' + esc(ago(p.createdAt)) + '</span>' +
+        '</div>' +
+        '<div class="post-title">' + esc(p.title) + '</div>' +
+        '<div class="post-excerpt">' + esc(excerpt(p.content, 96)) + '</div>' +
+        hit +
+        '<div class="post-foot"><span>💬 ' + (p.commentCount || 0) + ' 条回应</span></div>' +
+      '</div>'
+    }).join('')
+
+    box.querySelectorAll('.post').forEach(function (el) {
+      el.addEventListener('click', function () { openDetail(+el.dataset.i) })
+    })
+  }
+
+  function openDetail(i) {
+    const p = state.posts[i]
+    if (!p) return
+    const cmts = (p.comments || []).map(function (c) {
+      return '<div class="cmt">' +
+        '<div class="cmt-head">来自 · ' + esc(c.alias) + '　' + esc(ago(c.createdAt)) +
+          (c.reactions ? '　👍 ' + c.reactions : '') + '</div>' +
+        '<div class="cmt-content">' + esc(c.content) + '</div>' +
+      '</div>'
+    }).join('')
+
+    document.getElementById('modalContent').innerHTML =
+      '<div class="post-meta">' +
+        '<span class="tag ' + (TAG_CLASS[p.tag] || 'blue') + '">' + esc(p.tag) + '</span>' +
+        '<span class="author">来自 · ' + esc(p.alias) + '</span>' +
+        '<span class="time">' + esc(ago(p.createdAt)) + '</span>' +
+      '</div>' +
+      '<h2>' + esc(p.title) + '</h2>' +
+      '<div class="modal-body">' + esc(p.content) + '</div>' +
+      (p.hitLabels && p.hitLabels.length
+        ? '<div class="hit-note">服务端已自动脱敏：' + esc(p.hitLabels.join('、')) + '</div>'
+        : '') +
+      '<h3 style="font-size:15px;font-weight:500;margin:22px 0 4px">回应 · ' +
+        (p.commentCount || 0) + '</h3>' +
+      (cmts || '<div class="no-cmt">还没有人回应。在 GitHub 主题下留言即可。</div>') +
+      '<a class="btn-primary" style="margin-top:20px" href="' + esc(p.url) +
+        '" target="_blank" rel="noopener">去 GitHub 留言 / 看全部回应</a>'
+
+    document.getElementById('mask').classList.add('show')
+  }
+
+  function closeModal() {
+    document.getElementById('mask').classList.remove('show')
+  }
+
+  document.getElementById('close').addEventListener('click', closeModal)
+  document.getElementById('mask').addEventListener('click', function (e) {
+    if (e.target === this) closeModal()
+  })
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape') closeModal()
+  })
+
+  document.querySelectorAll('.tab').forEach(function (t) {
+    t.addEventListener('click', function () {
+      const tag = t.dataset.tag
+      const sort = t.dataset.sort
+      if (tag) {
+        state.tag = tag
+        document.querySelectorAll('.tab').forEach(function (x) { x.classList.remove('active') })
+        t.classList.add('active')
+      } else {
+        state.sort = sort
+        document.querySelectorAll('.tab').forEach(function (x) { x.classList.remove('active') })
+        t.classList.add('active')
+      }
+      render()
+    })
+  })
+
+  // 载入数据
+  fetch('posts.json')
+    .then(function (r) {
+      if (!r.ok) throw new Error('HTTP ' + r.status)
+      return r.json()
+    })
+    .then(function (data) {
+      state.posts = data.posts || []
+      document.getElementById('newPost').href = NEW_DISCUSSION
+      document.getElementById('repoLink').href = 'https://github.com/' + REPO + '/discussions'
+      const s = data.stats || {}
+      document.getElementById('stat').textContent =
+        '共 ' + (s.totalPosts || 0) + ' 条经历 · ' + (s.totalComments || 0) +
+        ' 条回应 · ' + (s.uniqueAuthors || 0) + ' 位参与者'
+      render()
+    })
+    .catch(function (e) {
+      document.getElementById('list').innerHTML =
+        '<div class="empty">数据还没同步。<br><br>运行 <code>node scripts/sync.js</code> ' +
+        '后会生成 posts.json。</div>'
+    })
+})()
+</script>
+</body>
+</html>

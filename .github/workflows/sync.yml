@@ -1,0 +1,72 @@
+name: 同步论坛数据
+
+# 每小时拉一次 Discussions，脱敏后生成静态站与数据集
+on:
+  schedule:
+    # GitHub 的 cron 用 UTC，北京时间 3:17 / 9:17 / 15:17 / 21:17
+    - cron: '17 */6 * * *'
+  # 手动触发：Actions 页面点 Run workflow
+  workflow_dispatch:
+  # 有新主题或新评论时也触发
+  discussion:
+    types: [created, edited, deleted]
+  issue_comment:
+    types: [created, edited, deleted]
+
+# 只需要读权限
+permissions:
+  contents: write
+  discussions: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: sync-discussions
+  cancel-in-progress: true
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: 同步并脱敏
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_OWNER: ${{ github.repository_owner }}
+          GH_REPO: ${{ github.event.repository.name }}
+          GH_CATEGORY: 经历
+        run: node scripts/sync.js
+
+      - name: 提交更新
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add data/posts.json site/posts.json
+          # 有变化才提交
+          if git diff --staged --quiet; then
+            echo "内容无变化，跳过提交"
+          else
+            git commit -m "chore: 同步论坛数据 $(date -u '+%Y-%m-%d %H:%M UTC')"
+            git push
+          fi
+
+      - name: 部署到 GitHub Pages
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+  deploy:
+    needs: sync
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: 部署
+        id: deployment
+        uses: actions/deploy-pages@v4
