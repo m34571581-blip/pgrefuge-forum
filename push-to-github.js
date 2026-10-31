@@ -396,23 +396,41 @@ async function main() {
 
       if (unrelated) {
         say('  远端是独立历史（多半是 GitHub 自动生成的 README），')
-        say('  正在合并（保留远端那条提交，但用我们的 README 覆盖它）...')
-        const allow = gitTry([
-          'pull', 'origin', 'main', '--allow-unrelated-histories',
-          '--no-edit', '-X', 'ours'
+        say('  正在合并 —— 保留远端那条提交，但内容以本地为准 ...')
+
+        // 注意：这里必须用 merge，不能用 pull。
+        // 分叉状态下 `git pull` 会直接 abort
+        // （"Not possible to fast-forward, aborting"），
+        // 而 `git merge` 会生成一个合并提交，保留双方历史。
+        const merged = gitTry([
+          'merge', 'origin/main', '--allow-unrelated-histories', '--no-edit'
         ])
-        if (allow.ok) {
+
+        if (merged.ok) {
           say('  合并完成')
-          // 合并后 README 可能变成远端那版，用本地版本覆盖回去
-          git(['checkout', 'HEAD', '--', 'README.md'])
-          const st = gitTry(['status', '--porcelain'])
-          if (st.out.trim()) {
-            git(['add', '.'])
-            git(['commit', '-m', 'docs: 用完整版 README 覆盖 GitHub 自动生成的占位文件'])
-            say('  已恢复完整 README')
-          }
         } else {
-          say('  [警告] 自动合并失败，将改用强制推送')
+          // 多半是 README 冲突（两边都有同名文件）。
+          // 我们的 README 是完整版，远端是 98 字节占位，
+          // 所以冲突一律取本地版本（--ours）。
+          const conflicts = gitTry(['diff', '--name-only', '--diff-filter=U'])
+          const files = conflicts.out.split('\n').filter(Boolean)
+          if (files.length) {
+            say('  冲突文件（取本地完整版）: ' + files.join(', '))
+            for (const f of files) {
+              gitTry(['checkout', '--ours', f])
+              gitTry(['add', f])
+            }
+            const rest = gitTry(['diff', '--name-only', '--diff-filter=U'])
+            if (!rest.out.trim()) {
+              git(['commit', '-m', 'merge: 合并远端初始提交，内容以本地为准'])
+              say('  冲突已解决，合并提交完成')
+            } else {
+              say('  [警告] 仍有未解决的冲突: ' + rest.out.trim().split('\n').join(', '))
+            }
+          } else {
+            say('  [警告] 合并失败：')
+            say(merged.out.split('\n').slice(-6).map(l => '    ' + l).join('\n'))
+          }
         }
       } else {
         say('  历史可快进，直接推送')
