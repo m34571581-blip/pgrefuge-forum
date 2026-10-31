@@ -26,10 +26,12 @@ on:
       - 'site/**'
       - '.github/workflows/sync.yml'
 
-# 只需要读权限
+# 权限说明：
+#   discussions: write —— 同步时要把脱敏后的正文覆写回原帖。
+#     只做静态站脱敏是不够的：仓库公开，Discussions 原文对未登录访客可见。
 permissions:
   contents: write
-  discussions: read
+  discussions: write
   pages: write
   id-token: write
 
@@ -40,6 +42,10 @@ concurrency:
 jobs:
   sync:
     runs-on: ubuntu-latest
+    # 防循环：覆写原帖会触发 discussion:edited 事件，
+    # 若不拦截就会「同步 → 覆写 → 触发 → 同步」无限循环。
+    # 机器人自己的编辑不再触发同步。
+    if: github.actor != 'github-actions[bot]'
     steps:
       - uses: actions/checkout@v5
 

@@ -10,7 +10,7 @@
  * 同样的规则顺序、同样的标记法、同样的命中口径。
  * 客户端与服务端的逐条一致性由 tests/desensitize-eval.js 校验（37 条样本零漂移）。
  *
- * 规则概览（8 级级联）：
+ * 规则概览（8 级级联 + 4 级英文补充）：
  *   p1 泛称 + 称谓保护      「其他老师」不被拆成「某老师」
  *   p2 泛称 + 机构词保护    「今天实验室」不被拆成「某实验室」
  *   p3 「的」占位           避免姓名规则把「的」当姓氏
@@ -19,6 +19,17 @@
  *   p6 课题组 / 实验室 → 某X
  *   p7 姓名 + 称谓 → 某称谓
  *   p8 「姓X」→「姓某」
+ *
+ *   e1 英文称谓 + 姓 → 某称谓   「Mr.Liu」→「Mr.某」
+ *   e2 姓 + 英文称谓 → 某称谓   「Liu Professor」→「某 Professor」
+ *   e3 姓 + 英文职衔 → 某职衔   「Liu advisor」→「某 advisor」
+ *   e4 英文机构名 → 某机构       「Tsinghua University」→「某 University」
+ *
+ * 英文层为什么单独做：
+ *   中英文混写是真实场景（很多研究生读文献、发帖都用英文）。
+ *   中文规则靠「汉字 + 称谓」的结构识别，英文里没有汉字锚点，
+ *   必须靠英文称谓本身（Mr./Prof./advisor）来定位，否则没法区分
+ *   「Mr.Liu」（人名，该脱敏）和「Mr. Smith」（普通称呼，不该动）。
  *
  * 关键设计：捕获组内不允许出现虚词（VIRTUAL）。
  * 早期实现只在捕获组开头做一次否定断言，结果「我们在湖南大学读研」里
@@ -51,6 +62,29 @@ const VIRTUAL =
 const NAME = '(?:' + VIRTUAL + '[一-龥A-Za-z0-9])'
 const NAME_CN = '(?:' + VIRTUAL + '[一-龥])'
 
+/**
+ * 英文脱敏规则
+ *
+ * 结构上比中文简单：英文没有汉字锚点，只能靠称谓/职衔本身定位。
+ * 每条规则都要求「称谓 + 至少一个看起来像姓名的词」同时出现，
+ * 避免误伤普通英文（the teacher、my professor 这类不带姓名的表达）。
+ */
+
+/** 缩写式称谓（后面跟姓）：Mr.Liu / Dr. Smith / Prof. Zhang */
+const EN_TITLE_DOT = '(?:Mr|Mrs|Ms|Dr|Prof|Prof\\.|Sr|Jr)'
+
+/** 完整称谓（后面跟姓）：Professor Wang / Advisor Liu */
+const EN_TITLE = '(?:Professor|Advisor|Supervisor|Teacher|Tutor|Mentor|Coordinator|Director|Head|Chair)'
+
+/** 英文机构词 */
+const EN_ORG = '(?:University|College|Institute|Laboratory|Lab|School|Academy|Polytechnic)'
+
+/** 像英文姓名的词：首字母大写 + 至少一个字母（排除全大写缩写如 MIT） */
+const EN_NAME = '[A-Z][a-z]{1,15}'
+
+/** 像英文机构名的词组：Tsinghua / New York */
+const EN_ORG_NAME = '[A-Z][a-zA-Z]{1,20}(?:\\s+[A-Z][a-zA-Z]{1,20}){0,2}'
+
 // 与服务端 chr() 标记同构（用 String.fromCharCode，避免源码里出现控制字符）
 const M1 = String.fromCharCode(1) // 泛称保护
 const M2 = String.fromCharCode(2) // 替换结果包裹
@@ -63,7 +97,9 @@ const HIT_LABELS = {
   college: '学院 / 学系',
   team: '课题组 / 实验室',
   person: '姓名 + 称谓',
-  surname: '姓氏'
+  surname: '姓氏',
+  personEn: '英文姓名',
+  orgEn: '英文机构名'
 }
 
 /**
@@ -106,6 +142,50 @@ function desensitize(text) {
     (m, g1, g2) => M2 + '某' + g2 + M2)
   // p8 「姓X」→「姓某」
   step(/姓([一-龥]{1,2})/g, 'surname', () => M2 + '姓某' + M2)
+
+  // ---- 英文补充规则 ----
+  //
+  // 放在中文规则之后：中文规则会把「的」换成 M3，英文规则不受影响；
+  // 反过来则可能被中文规则吃掉英文边界，所以这个顺序不能反。
+  //
+  // 英文的语序和中文相反 —— 英文是「称谓 + 姓」（Professor Wang），
+  // 中文是「姓 + 称谓」（王教授）。两种都覆盖，但主规则必须是「称谓 + 姓」。
+
+  // e1 缩写称谓 + 姓：Mr.Liu → Mr.某
+  //    要求点号紧跟姓，或称谓与姓之间有空格（两种写法都覆盖）
+  step(
+    new RegExp('\\b(' + EN_TITLE_DOT + ')\\.?\\s*(' + EN_NAME + ')\\b', 'g'),
+    'personEn',
+    (m, g1, g2) => M2 + g1 + '.某' + M2
+  )
+  // e2 完整称谓 + 姓：Professor Wang → Professor 某
+  //    这是英文最常见的写法，必须有「姓」跟在后面才动手，
+  //    否则 "my professor was not there" 这类会被误伤。
+  step(
+    new RegExp('\\b(' + EN_TITLE + ')\\s+(' + EN_NAME + ')\\b', 'g'),
+    'personEn',
+    (m, g1, g2) => M2 + g1 + ' 某' + M2
+  )
+  // e3 小写职衔 + 姓：advisor Liu → advisor 某
+  //    小写职衔单独成词时容易误伤，这里要求后面跟一个像姓名的首字母大写词
+  step(
+    new RegExp('\\b(advisor|supervisor|mentor|tutor)\\s+(' + EN_NAME + ')\\b', 'g'),
+    'personEn',
+    (m, g1, g2) => M2 + g1 + ' 某' + M2
+  )
+  // e4 姓 + 完整称谓：Wang Professor → 某 Professor
+  //    中式英文或简历写法里会出现，补上。
+  step(
+    new RegExp('\\b(' + EN_NAME + ')\\s+(' + EN_TITLE + ')\\b', 'g'),
+    'personEn',
+    (m, g1, g2) => M2 + '某 ' + g2 + M2
+  )
+  // e5 英文机构名：Tsinghua University → 某 University
+  step(
+    new RegExp('\\b(' + EN_ORG_NAME + ')\\s+(' + EN_ORG + ')\\b', 'g'),
+    'orgEn',
+    (m, g1, g2) => M2 + '某 ' + g2 + M2
+  )
 
   // 还原「的」，去掉所有标记
   out = out.split(M3).join('的').split(M2).join('').split(M1).join('').split(M4).join('')

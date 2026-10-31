@@ -38,6 +38,16 @@ const CATEGORY_ALIASES = (process.env.GH_CATEGORY_ALIASES || '')
   .filter(Boolean)
 const TOKEN = process.env.GITHUB_TOKEN || ''
 
+/**
+ * 是否把脱敏后的内容覆写回 GitHub 原帖。
+ *
+ * 默认开启 —— 仓库是公开的，Discussions 原文对未登录访客可见，
+ * 只在静态站脱敏等于没脱敏。关掉它就等于承认「隐私承诺是假的」。
+ *
+ * 需要 token 具备 discussions: write 权限。
+ */
+const OVERWRITE_ORIGINAL = process.env.GH_OVERWRITE_ORIGINAL !== 'false'
+
 /** 分类标签 → 产品内的类型标签 */
 const TAG_MAP = {
   '压榨': '压榨',
@@ -88,6 +98,7 @@ async function fetchDiscussions() {
         discussions(first: $first, orderBy: {field: CREATED_AT, direction: DESC}) {
           totalCount
           nodes {
+            id
             number
             title
             body
@@ -98,6 +109,7 @@ async function fetchDiscussions() {
             comments(first: 100) {
               totalCount
               nodes {
+                id
                 body
                 createdAt
                 author { ... on User { login } }
@@ -128,6 +140,63 @@ async function fetchDiscussions() {
     throw new Error('GraphQL 错误: ' + JSON.stringify(json.errors).slice(0, 400))
   }
   return json.data.repository
+}
+
+/**
+ * 把脱敏后的内容覆写回 GitHub
+ *
+ * 为什么必须这么做：
+ *   仓库是公开的，Discussions 的内容对未登录访客完全可见。
+ *   如果只把脱敏结果放进静态站，原文仍然躺在 GitHub 上 ——
+ *   「服务端强制脱敏、不采集任何身份信息」这个承诺就是假的。
+ *
+ *   所以同步时把脱敏后的正文写回原帖，让 GitHub 上展示的就是脱敏版。
+ *   原始内容只短暂存在于同步之前的那段时间。
+ *
+ * 注意：需要 discussions: write 权限（GITHUB_TOKEN 默认带）。
+ */
+async function overwriteOnGitHub(items) {
+  if (!items.length) return { updated: 0, failed: 0 }
+
+  const mutation = `
+    mutation($discussionId: ID!, $body: String!) {
+      updateDiscussion(input: {discussionId: $discussionId, body: $body}) {
+        discussion { id url updatedAt }
+      }
+    }
+  `
+
+  let updated = 0
+  let failed = 0
+
+  for (const item of items) {
+    try {
+      const res = await fetch(GRAPHQL_ENDPOINT, {
+        method: 'POST',
+        headers: {
+          'Authorization': 'Bearer ' + TOKEN,
+          'Content-Type': 'application/json',
+          'User-Agent': 'pgrefuge-sync'
+        },
+        body: JSON.stringify({
+          query: mutation,
+          variables: { discussionId: item.id, body: item.body }
+        })
+      })
+      const json = await res.json()
+      if (json.errors) {
+        failed++
+        console.warn('  覆写失败 #' + item.number + ': ' + JSON.stringify(json.errors).slice(0, 160))
+      } else {
+        updated++
+        console.log('  已覆写 #' + item.number + '（原文 → 脱敏版）')
+      }
+    } catch (e) {
+      failed++
+      console.warn('  覆写异常 #' + item.number + ': ' + String(e.message || e).slice(0, 160))
+    }
+  }
+  return { updated, failed }
 }
 
 /** 从讨论标题里解析出用户填的标签与策略 */
@@ -262,6 +331,7 @@ async function main() {
     })
 
     return {
+      id: d.id,
       number: d.number,
       title: safeTitle,
       content: safeBody,
@@ -275,6 +345,40 @@ async function main() {
       comments
     }
   })
+
+  // ---- 覆写原帖：让 GitHub 上展示的就是脱敏版 ----
+  //
+  // 仓库是公开的，Discussions 原文对未登录访客可见。
+  // 只在静态站脱敏是不够的 —— 原文必须被替换掉。
+  //
+  // 写回的内容格式与站内展示保持一致：策略行 + 脱敏正文。
+  // 只有内容真的变了才覆写，避免每次同步都触发一次 edited 事件
+  // （那会让 workflow 自己触发自己，形成循环）。
+  if (!offline && OVERWRITE_ORIGINAL) {
+    const toOverwrite = []
+    for (const d of discussions) {
+      const safeBody = desensitize(cleanBody(d.body)).content
+      // 原文里可能带策略行，脱敏后要重新拼回去，否则覆写会把元数据抹掉
+      const strategyLine = (d.body || '').match(/^\s*>+\s*策略[:：]\s*\w+\s*$/m)
+      const newBody = strategyLine
+        ? strategyLine[0] + '\n\n' + safeBody
+        : safeBody
+      if (newBody !== (d.body || '')) {
+        toOverwrite.push({ id: d.id, number: d.number, body: newBody })
+      }
+    }
+    if (toOverwrite.length) {
+      console.log(`\n覆写 ${toOverwrite.length} 条原帖（脱敏后写回 GitHub）...`)
+      const r = await overwriteOnGitHub(toOverwrite)
+      console.log(`  成功 ${r.updated} 条，失败 ${r.failed} 条`)
+      if (r.failed) {
+        console.warn('  提示：覆写失败说明 token 缺少 discussions: write 权限，')
+        console.warn('        或该帖已被锁定。GitHub 上仍会显示原文 —— 请手动处理。')
+      }
+    } else {
+      console.log('\n所有原帖已是脱敏版，无需覆写')
+    }
+  }
 
   // ---- 统计（给作品集用的真实指标）----
   const stats = {

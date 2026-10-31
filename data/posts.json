@@ -1,14 +1,99 @@
 {
   "stats": {
-    "totalPosts": 0,
-    "totalComments": 0,
-    "uniqueAuthors": 0,
-    "taggedCounts": {},
-    "strategyCounts": {},
-    "withSensitiveHits": 0,
-    "firstPostAt": null,
-    "lastPostAt": null,
-    "generatedAt": "2026-10-31T13:19:43.056Z"
+    "totalPosts": 4,
+    "totalComments": 3,
+    "uniqueAuthors": 5,
+    "taggedCounts": {
+      "压榨": 1,
+      "人格污蔑": 1,
+      "Push": 1,
+      "其他": 1
+    },
+    "strategyCounts": {
+      "reduce": 2,
+      "avoid": 2
+    },
+    "withSensitiveHits": 1,
+    "firstPostAt": "2026-10-20T03:14:00Z",
+    "lastPostAt": "2026-10-23T09:00:00Z",
+    "generatedAt": "2026-10-31T13:47:53.602Z",
+    "categorySlug": "experiences",
+    "categoryName": "experiences"
   },
-  "posts": []
+  "posts": [
+    {
+      "number": 1,
+      "title": "导师让我每天七点到实验室",
+      "content": "某老师让我每天早上七点到实验室，晚上十一点才能走，周末还要随叫随到。稍有松懈就说我\"不努力\"。",
+      "tag": "压榨",
+      "strategy": "reduce",
+      "alias": "晚风",
+      "createdAt": "2026-10-20T03:14:00Z",
+      "url": "https://github.com/test/pgrefuge-forum/discussions/1",
+      "hitLabels": [
+        "姓名 + 称谓"
+      ],
+      "commentCount": 2,
+      "comments": [
+        {
+          "alias": "旧书页",
+          "content": "先找辅导员反映，聊天记录留着，别自己扛。",
+          "createdAt": "2026-10-20T04:02:00Z",
+          "reactions": 5
+        },
+        {
+          "alias": "雨巷",
+          "content": "我也是这么过来的。我们学院的某老师说熬过去就好了。",
+          "createdAt": "2026-10-20T05:20:00Z",
+          "reactions": 2
+        }
+      ]
+    },
+    {
+      "number": 2,
+      "title": "组会被当众羞辱",
+      "content": "组会上当着所有人的面说我\"是他带过最差的学生\"。每次汇报都要被骂到哭。",
+      "tag": "人格污蔑",
+      "strategy": "avoid",
+      "alias": "雨巷",
+      "createdAt": "2026-10-21T06:30:00Z",
+      "url": "https://github.com/test/pgrefuge-forum/discussions/2",
+      "hitLabels": [],
+      "commentCount": 1,
+      "comments": [
+        {
+          "alias": "晚风",
+          "content": "换个导师吧，这种人不值得你付出。",
+          "createdAt": "2026-10-21T07:10:00Z",
+          "reactions": 8
+        }
+      ]
+    },
+    {
+      "number": 3,
+      "title": "PUSH 到凌晨两点",
+      "content": "又是凌晨两点改论文，导师的消息凌晨一点半还在发。我盯着屏幕不知道该回什么。",
+      "tag": "Push",
+      "strategy": "reduce",
+      "alias": "青柠",
+      "createdAt": "2026-10-22T08:45:00Z",
+      "url": "https://github.com/test/pgrefuge-forum/discussions/3",
+      "hitLabels": [],
+      "commentCount": 0,
+      "comments": []
+    },
+    {
+      "number": 4,
+      "title": "今天实验室停电了",
+      "content": "今天实验室停电了，一整天的实验白做了。",
+      "tag": "其他",
+      "strategy": "avoid",
+      "alias": "山雀",
+      "createdAt": "2026-10-23T09:00:00Z",
+      "url": "https://github.com/test/pgrefuge-forum/discussions/4",
+      "hitLabels": [],
+      "commentCount": 0,
+      "comments": []
+    }
+  ]
 }

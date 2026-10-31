@@ -70,7 +70,29 @@ const CASES = [
   { t: '每天在实验室待到十点', expect: 'keep', note: '时间状语 + 实验室不应被误伤' },
   { t: '每次在实验室都要开会', expect: 'keep', note: '频率状语 + 实验室不应被误伤' },
   { t: '回到实验室继续干', expect: 'keep', note: '动词 + 实验室不应被误伤' },
-  { t: '我在研究生院读研', expect: 'keep', note: '已知漏检：研究院/研究所不在机构词表' }
+  { t: '我在研究生院读研', expect: 'keep', note: '已知漏检：研究院/研究所不在机构词表' },
+
+  // ---------- 英文（e1~e5 规则）----------
+  // 来源：真实用户在 GitHub Discussions 发的英文帖子。
+  // 原帖里的 "Mr.Liu" 完全没被脱敏 —— 中文规则靠汉字锚点，
+  // 英文没有汉字锚点，必须靠称谓本身定位，所以补了独立的英文层。
+  { t: 'I hate Mr.Liu who pushes me and yelled at me.', expect: 'mask', note: '缩写称谓 + 姓' },
+  { t: 'Professor Wang is very strict with us.', expect: 'mask', note: '完整称谓 + 姓（英文最常见语序）' },
+  { t: 'I asked Dr. Smith for help.', expect: 'mask', note: 'Dr. + 姓' },
+  { t: 'Prof. Zhang told me to stay late.', expect: 'mask', note: 'Prof. + 姓' },
+  { t: 'Ms. Chen gave me useful advice.', expect: 'mask', note: 'Ms. + 姓' },
+  { t: 'I am from Tsinghua University now.', expect: 'mask', note: '英文机构名' },
+  { t: 'My advisor is from New York University.', expect: 'mask', note: '多词机构名' },
+  { t: 'my advisor Liu gave me advice.', expect: 'mask', note: '小写职衔 + 姓' },
+  { t: 'my supervisor Wang is nice.', expect: 'mask', note: '小写职衔 + 姓（另一种）' },
+  { t: '我们组的 Liu Professor 很强', expect: 'mask', note: '中式英文：姓 + 称谓' },
+
+  // 英文负样本：没有姓名就不该动
+  { t: 'the teacher told me to stay late', expect: 'keep', note: '无姓名的 teacher 不应被误伤' },
+  { t: 'I went to the office and my professor was not there.', expect: 'keep', note: '普通 professor 不应被误伤' },
+  { t: 'I love New York and MIT is famous.', expect: 'keep', note: '地名与缩写机构不应被误伤' },
+  { t: 'I work at NASA and IBM.', expect: 'keep', note: '全大写缩写不应被误伤' },
+  { t: 'I applied to university last year.', expect: 'keep', note: '小写 university 不应被误伤' }
 ]
 
 function main() {
