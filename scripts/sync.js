@@ -202,11 +202,34 @@ async function main() {
     )
   }
 
-  const discussions = repoData.discussions.nodes || []
+  // 只保留目标分类下的主题。
+  // GitHub Discussions 建仓时自带 General / Q&A / Ideas 等默认分类，
+  // 如果不过滤，这些跟产品无关的内容会混进论坛数据里。
+  const allDiscussions = repoData.discussions.nodes || []
+  const discussions = CATEGORY
+    ? allDiscussions.filter((d) => d.category && d.category.name === CATEGORY)
+    : allDiscussions
+
   const aliases = buildAliasMap(discussions)
 
-  console.log('原始主题数:', repoData.discussions.totalCount, '| 本次拉取:', discussions.length)
+  console.log('原始主题数:', repoData.discussions.totalCount, '| 本次拉取:', allDiscussions.length)
+  console.log(`分类「${CATEGORY}」下的主题:`, discussions.length)
   console.log('参与用户数:', Object.keys(aliases).length)
+
+  // 分类名写错是最容易犯也最难发现的错误 —— 静默返回 0 条，
+  // 站点看起来就是「没人发帖」，很难联想到是分类名不对。
+  if (CATEGORY && discussions.length === 0) {
+    const cats = (repoData.discussionCategories && repoData.discussionCategories.nodes) || []
+    console.warn('')
+    console.warn('⚠ 没有拉到任何主题。可能原因：')
+    console.warn(`  · 分类名「${CATEGORY}」在 GitHub 上不存在（名称必须完全一致）`)
+    if (cats.length) {
+      console.warn('  · GitHub 上现有的分类是：' + cats.map((c) => c.name).join('、'))
+    }
+    console.warn('  · 还没人在这个分类下发帖')
+    console.warn('  在仓库的 Discussions 页新建分类，或改 workflow 里的 GH_CATEGORY')
+    console.warn('')
+  }
 
   // ---- 脱敏 + 组装 ----
   const posts = discussions.map((d) => {
