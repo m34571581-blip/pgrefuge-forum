@@ -9,10 +9,10 @@
     "strategyCounts": {
       "reduce": 1
     },
-    "withSensitiveHits": 1,
+    "withSensitiveHits": 0,
     "firstPostAt": "2026-10-31T13:38:25Z",
     "lastPostAt": "2026-10-31T13:38:25Z",
-    "generatedAt": "2026-10-31T13:40:19.820Z",
+    "generatedAt": "2026-10-31T13:41:29.186Z",
     "categorySlug": "experiences",
     "categoryName": "experiences"
   },
@@ -20,16 +20,13 @@
     {
       "number": 1,
       "title": "老师每次叫我都是让我立刻去办公室",
-      "content": "我们在某实验室通宵做实验，导师姓某，他总是叫我马上去他的办公室，为了一些毫不重要的事情",
+      "content": "test",
       "tag": "压榨",
       "strategy": "reduce",
       "alias": "晚风",
       "createdAt": "2026-10-31T13:38:25Z",
       "url": "https://github.com/m34571581-blip/pgrefuge-forum/discussions/1",
-      "hitLabels": [
-        "课题组 / 实验室",
-        "姓氏"
-      ],
+      "hitLabels": [],
       "commentCount": 0,
       "comments": []
     }
