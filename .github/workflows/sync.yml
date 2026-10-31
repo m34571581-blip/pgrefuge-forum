@@ -1,17 +1,30 @@
 name: 同步论坛数据
 
-# 每小时拉一次 Discussions，脱敏后生成静态站与数据集
+# 拉 Discussions，脱敏后生成静态站与数据集
 on:
   schedule:
-    # GitHub 的 cron 用 UTC，北京时间 3:17 / 9:17 / 15:17 / 21:17
-    - cron: '17 */6 * * *'
+    # GitHub 的 cron 用 UTC（北京时间 = UTC+8）
+    # 每小时 17 分和 47 分各跑一次 → 最多 30 分钟延迟就能看到新帖
+    # 每天 48 次 ≈ 每月 1440 次，公共仓库配额是每月 2000 次，安全
+    - cron: '17,47 * * * *'
   # 手动触发：Actions 页面点 Run workflow
   workflow_dispatch:
-  # 有新主题或新评论时也触发
+  # 有新主题或新评论时也触发。
+  # 注意：discussion 事件只在「本仓库内」创建/编辑讨论时触发，
+  # 而用户是在自己的账号下回复评论 —— 那属于别的仓库的事件，
+  # 这里的 issue_comment 收不到。所以下面额外加了 push 触发，
+  # 保证「代码更新后能立刻重新同步一次」。
   discussion:
     types: [created, edited, deleted]
   issue_comment:
     types: [created, edited, deleted]
+  # 代码或配置变更后重跑一次，让静态站立刻反映最新状态
+  push:
+    branches: [main]
+    paths:
+      - 'scripts/**'
+      - 'site/**'
+      - '.github/workflows/sync.yml'
 
 # 只需要读权限
 permissions:
@@ -47,12 +60,29 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add data/posts.json site/posts.json
-          # 有变化才提交
-          if git diff --staged --quiet; then
-            echo "内容无变化，跳过提交"
-          else
+          # 只在「内容真的变了」时才提交。
+          # posts.json 里的 generatedAt 每次生成都变，直接 diff 会导致
+          # 每 30 分钟产生一个无意义 commit，把仓库历史刷满。
+          # 所以剔除时间戳后再与 HEAD 版本比较。
+          CHANGED=$(python3 -c "
+          import json, subprocess
+          def norm(s):
+              try:
+                  d = json.loads(s)
+              except Exception:
+                  return s
+              d.get('stats', {}).pop('generatedAt', None)
+              return json.dumps(d, sort_keys=True, ensure_ascii=False)
+          old = subprocess.run(['git', 'show', 'HEAD:data/posts.json'],
+                               capture_output=True, text=True).stdout
+          new = open('data/posts.json', encoding='utf-8').read()
+          print('true' if norm(old) != norm(new) else 'false')
+          ")
+          if [ "$CHANGED" = "true" ]; then
             git commit -m "chore: 同步论坛数据 $(date -u '+%Y-%m-%d %H:%M UTC')"
             git push
+          else
+            echo "内容无实质变化，跳过提交"
           fi
 
       - name: 部署到 GitHub Pages
