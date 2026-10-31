@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>PGrefuge · 研究生庇护所</title>
 <meta name="description" content="面向在校研究生的匿名倾诉社区。服务端强制脱敏，不采集任何身份信息。">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%234A443E'/%3E%3Ctext x='16' y='23' font-size='18' text-anchor='middle' fill='%23FBF8F4' font-family='sans-serif'%3EP%3C/text%3E%3C/svg%3E">
 <style>
   :root {
     --bg: #F5F0EB; --paper: #FBF8F4; --card: #FAF7F3;
@@ -142,9 +143,11 @@
   <div class="guide">
     <b>怎么发帖</b>
     <ol>
-      <li>点下面的「写经历」，在 GitHub 上新建一个讨论主题</li>
+      <li>点下面的「写经历」，在 GitHub 上新建一个讨论主题（分类选「经历」）</li>
       <li>标题写成 <code>你的处境 [压榨]</code>，标签可选：压榨 / PUA / 谩骂 / 人格污蔑 / Push / 其他</li>
       <li>正文写下你的经历。<b>不用自己打码</b> —— 学校、学院、导师姓名会由服务端自动替换成「某校」「某老师」</li>
+      <li>正文第一行加一句 <code>&gt; 策略: reduce</code>，说明你想怎么应对：
+        <code>avoid</code> 忍一忍 · <code>reduce</code> 硬刚回去 · <code>transfer</code> 找人帮忙 · <code>escape</code> 溜之大吉</li>
       <li>想看别人的回应，去该主题的评论区留言即可</li>
     </ol>
   </div>
@@ -178,8 +181,13 @@
   const CFG = window.PG_CONFIG || {}
   const REPO = CFG.repo || 'your-username/pgrefuge-forum'
   const CATEGORY = CFG.category || '经历'
+  // GitHub 的 /discussions/new?category= 认的是分类 slug，不是显示名。
+  // ASCII 分类的 slug 是小写转写（General → general），中文分类则等于
+  // URL 编码后的名字。同步脚本会把真实 slug 写进 posts.json，
+  // 这里优先用它，没有再退回显示名（中文场景下两者一致）。
+  let CATEGORY_SLUG = CATEGORY
   const NEW_DISCUSSION = 'https://github.com/' + REPO +
-    '/discussions/new?category=' + encodeURIComponent(CATEGORY)
+    '/discussions/new?category=' + encodeURIComponent(CATEGORY_SLUG)
 
   const state = { posts: [], sort: 'latest', tag: 'all' }
 
@@ -327,9 +335,18 @@
     })
     .then(function (data) {
       state.posts = data.posts || []
-      document.getElementById('newPost').href = NEW_DISCUSSION
-      document.getElementById('repoLink').href = 'https://github.com/' + REPO + '/discussions'
       const s = data.stats || {}
+
+      // 用同步脚本带回来的真实 slug 重建「写经历」链接
+      if (s.categorySlug) {
+        CATEGORY_SLUG = s.categorySlug
+        document.getElementById('newPost').href = 'https://github.com/' + REPO +
+          '/discussions/new?category=' + encodeURIComponent(CATEGORY_SLUG)
+      } else {
+        document.getElementById('newPost').href = NEW_DISCUSSION
+      }
+
+      document.getElementById('repoLink').href = 'https://github.com/' + REPO + '/discussions'
       document.getElementById('stat').textContent =
         '共 ' + (s.totalPosts || 0) + ' 条经历 · ' + (s.totalComments || 0) +
         ' 条回应 · ' + (s.uniqueAuthors || 0) + ' 位参与者'

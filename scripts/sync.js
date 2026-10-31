@@ -283,6 +283,17 @@ async function main() {
       : null,
     generatedAt: new Date().toISOString()
   }
+
+  // 把分类的真实 slug 一起输出。
+  // 前端拼「写经历」链接时需要它 —— GitHub 的 /discussions/new?category=
+  // 认的是 slug，而 ASCII 分类名的 slug 是小写转写（如 General → general），
+  // 中文分类则恰好等于 URL 编码后的名字。不能想当然用显示名。
+  const cats = (repoData.discussionCategories && repoData.discussionCategories.nodes) || []
+  const targetCat = cats.find((c) => c.name === CATEGORY)
+  if (targetCat) {
+    stats.categorySlug = targetCat.slug
+    stats.categoryName = targetCat.name
+  }
   posts.forEach((p) => {
     stats.taggedCounts[p.tag] = (stats.taggedCounts[p.tag] || 0) + 1
     stats.strategyCounts[p.strategy] = (stats.strategyCounts[p.strategy] || 0) + 1
