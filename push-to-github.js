@@ -8,14 +8,15 @@
  *
  * 做的事：
  *   1. 检查 git 环境与身份
- *   2. 询问 GitHub 用户名，自动改写 site/config.js 里的仓库占位符
- *   3. git init / add / commit
- *   4. 绑定远端仓库（可自动用 GitHub API 建仓库，需 Token）
- *   5. push，并提示后续要开的三个开关
+ *   2. 自动探测网络代理（国内直连 GitHub 通常被墙）
+ *   3. 询问 GitHub 用户名，自动改写 site/config.js 里的仓库占位符
+ *   4. git init / add / commit
+ *   5. 绑定远端仓库并推送，提示后续要开的三个开关
  */
 const { execFileSync, execSync } = require('child_process')
 const fs = require('fs')
 const path = require('path')
+const net = require('net')
 const readline = require('readline')
 
 const ROOT = __dirname
@@ -59,13 +60,155 @@ function ask(question, fallback) {
   })
 }
 
+// ---------------------------------------------------------------------------
+// 代理探测
+//
+// 国内直连 GitHub 基本会被墙，而 git **不读 http_proxy 环境变量**
+// （只有 curl / npm 这类工具读），所以 git 会「裸奔」直连然后超时失败。
+// 这里主动扫描本机常见代理端口，验证它能否真的 CONNECT 到 GitHub，
+// 找到就写进本次推送的 git 配置（只影响本仓库，不污染全局设置）。
+// ---------------------------------------------------------------------------
+
+const PROXY_PORTS = [
+  7897, 7890, 7891, 7892, 10809, 10808, 1080, 1081, 1087, 10810,
+  8888, 8080, 8118, 33210, 4780, 9090, 20171, 789
+]
+
+function portOpen(port, host = '127.0.0.1', timeout = 900) {
+  return new Promise((resolve) => {
+    const s = new net.Socket()
+    let done = false
+    const finish = (v) => { if (!done) { done = true; s.destroy(); resolve(v) } }
+    s.setTimeout(timeout)
+    s.once('connect', () => finish(true))
+    s.once('timeout', () => finish(false))
+    s.once('error', () => finish(false))
+    s.connect(port, host)
+  })
+}
+
+/**
+ * 用 curl 验证某个端口能否作为 HTTP 代理 CONNECT 到 GitHub。
+ *
+ * 注意：Windows 上没有 /dev/null，curl 会因写文件失败返回退出码 23，
+ * 但 stdout 里已经有正确的状态码。所以这里用 NUL（Windows），
+ * 并且把 stdout 的内容作为判定依据，而不是依赖退出码。
+ */
+function proxyWorks(port) {
+  const nullDev = process.platform === 'win32' ? 'NUL' : '/dev/null'
+  try {
+    const out = execFileSync('curl', [
+      '-s', '-m', '12', '-o', nullDev, '-w', '%{http_code}',
+      '-x', `http://127.0.0.1:${port}`,
+      'https://github.com'
+    ], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], timeout: 20000 })
+    const code = String(out).trim()
+    return code === '200'
+  } catch (e) {
+    // curl 可能因退出码非 0 抛异常，但 stdout 里已有状态码
+    const code = String((e.stdout || '')).trim()
+    return code === '200'
+  }
+}
+
+/** 直连能否访问 GitHub（不走任何代理） */
+function directWorks() {
+  const nullDev = process.platform === 'win32' ? 'NUL' : '/dev/null'
+  try {
+    const out = execFileSync('curl', [
+      '-s', '-m', '12', '--noproxy', '*', '-o', nullDev, '-w', '%{http_code}',
+      'https://github.com'
+    ], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], timeout: 20000 })
+    return String(out).trim() === '200'
+  } catch (e) {
+    return String((e.stdout || '')).trim() === '200'
+  }
+}
+
+async function detectProxy() {
+  say('  测试直连 GitHub ...')
+  if (directWorks()) {
+    say('  直连正常，无需代理')
+    return null
+  }
+  say('  直连不通（国内网络常见），扫描本地代理端口 ...')
+
+  // 先看环境变量里给的端口，可能就是对的
+  const envPorts = []
+  for (const k of ['https_proxy', 'HTTPS_PROXY', 'http_proxy', 'HTTP_PROXY', 'all_proxy']) {
+    const v = process.env[k]
+    if (!v) continue
+    const m = String(v).match(/:(\d+)\s*$/)
+    if (m) envPorts.push(parseInt(m[1], 10))
+  }
+
+  const candidates = [...new Set([...envPorts, ...PROXY_PORTS])]
+  for (const port of candidates) {
+    if (!port || port < 1 || port > 65535) continue
+    const open = await portOpen(port)
+    if (!open) continue
+    process.stdout.write(`    端口 ${port} 开放，验证中 ... `)
+    if (proxyWorks(port)) {
+      say('可用')
+      return port
+    }
+    say('不是 HTTP 代理')
+  }
+  return null
+}
+
+/**
+ * 检查 git 能否读到远端。
+ *
+ * Windows 版 git 默认用 schannel（系统 TLS），在国内网络下经常报
+ *   schannel: server closed abruptly (missing close_notify)
+ * —— 连接被中间设备粗暴切断。切到 OpenSSL 后端即可解决，
+ * 而且不需要配代理。所以这里做一次探测，需要时自动切换。
+ */
+function remoteReadable(repoUrl) {
+  const r = gitTry(['ls-remote', repoUrl, 'refs/heads/main'])
+  return r.ok && r.out.trim().length > 0
+}
+
+function ensureTlsBackend(repoUrl, proxyPort) {
+  // 先看当前能不能读
+  if (remoteReadable(repoUrl)) return 'ok'
+
+  say('  默认 TLS 后端读不到远端，尝试切换到 OpenSSL ...')
+  try { git(['config', 'http.sslBackend', 'openssl'], { quiet: true }) } catch (e) { /* 忽略 */ }
+  if (remoteReadable(repoUrl)) {
+    say('  已切换 http.sslBackend=openssl，问题解决')
+    return 'ok'
+  }
+
+  // 还不行，试代理
+  if (!proxyPort) {
+    say('  OpenSSL 仍不行，且没有可用代理')
+    return 'fail'
+  }
+  say('  OpenSSL 仍不行，回退到「代理 + OpenSSL」...')
+  const withProxy = ['-c', 'http.sslBackend=openssl']
+  withProxy.push('-c', `http.proxy=http://127.0.0.1:${proxyPort}`)
+  withProxy.push('-c', `https.proxy=http://127.0.0.1:${proxyPort}`)
+  try {
+    git(['ls-remote', ...withProxy, repoUrl, 'refs/heads/main'], { quiet: true })
+    say('  通过代理可以读到远端')
+    git(['config', 'http.proxy', `http://127.0.0.1:${proxyPort}`], { quiet: true })
+    git(['config', 'https.proxy', `http://127.0.0.1:${proxyPort}`], { quiet: true })
+    return 'proxy'
+  } catch (e) {
+    say('  仍然读不到远端')
+    return 'fail'
+  }
+}
+
 async function main() {
   say('')
   say('  PGrefuge 匿名论坛 · 推送到 GitHub')
   say('')
 
   // ---------- 1. 环境检查 ----------
-  hr('1 / 5  环境检查')
+  hr('1 / 6  环境检查')
 
   try {
     const v = git(['--version'], { quiet: true }).trim()
@@ -88,8 +231,26 @@ async function main() {
     say('  git 身份      : ' + name.out.trim() + ' <' + mail.out.trim() + '>')
   }
 
-  // ---------- 2. GitHub 用户名 ----------
-  hr('2 / 5  确认 GitHub 用户名')
+  // ---------- 2. 网络连通性 ----------
+  hr('2 / 6  检查网络连通性')
+
+  // git 不读 http_proxy 环境变量，国内直连 GitHub 通常会超时失败，
+  // 所以这里主动探测本机代理，找到就写进本仓库的 git 配置。
+  const proxyPort = await detectProxy()
+  let proxyApplied = false
+  if (proxyPort) {
+    const proxyUrl = `http://127.0.0.1:${proxyPort}`
+    git(['config', 'http.proxy', proxyUrl])
+    git(['config', 'https.proxy', proxyUrl])
+    say(`  已为本仓库设置代理 : ${proxyUrl}`)
+    say('  （只影响这个仓库，不改你的全局 git 配置）')
+    proxyApplied = true
+  } else {
+    say('  没找到可用代理。若推送超时，请先开启你的代理软件再重跑。')
+  }
+
+  // ---------- 3. GitHub 用户名 ----------
+  hr('3 / 6  确认 GitHub 用户名')
 
   let username = ''
   if (fs.existsSync(CONFIG)) {
@@ -115,7 +276,7 @@ async function main() {
   const repoFull = `${username}/${repoName}`
 
   // ---------- 3. 改写 config.js ----------
-  hr('3 / 5  更新 site/config.js')
+  hr('4 / 6  更新 site/config.js')
 
   if (fs.existsSync(CONFIG)) {
     const before = fs.readFileSync(CONFIG, 'utf8')
@@ -139,7 +300,7 @@ async function main() {
   }
 
   // ---------- 4. 本地提交 ----------
-  hr('4 / 5  本地初始化与提交')
+  hr('5 / 6  本地初始化与提交')
 
   if (fs.existsSync(path.join(ROOT, '.git'))) {
     say('  已经是 git 仓库，跳过 init')
@@ -182,7 +343,7 @@ async function main() {
   }
 
   // ---------- 5. 远端与推送 ----------
-  hr('5 / 5  绑定远端并推送')
+  hr('6 / 6  绑定远端并推送')
 
   const remote = gitTry(['remote', 'get-url', 'origin'])
   const httpsUrl = `https://github.com/${repoFull}.git`
@@ -203,6 +364,62 @@ async function main() {
     try { git(['remote', 'remove', 'origin'], { quiet: true }) } catch (e) { /* 没有就算了 */ }
     git(['remote', 'add', 'origin', target])
     say('  已添加 origin : ' + target)
+  }
+
+  // ---------- 6. 推送前的网络与历史对齐 ----------
+  //
+  // 两件事：
+  //  a) TLS 后端：Windows git 默认用 schannel，国内网络下会被粗暴切断
+  //     （schannel: server closed abruptly），切 OpenSSL 即可
+  //  b) 历史对齐：远端若是 GitHub 自动生成的独立 README，
+  //     push 会被 rejected，需要先合并
+  say('')
+  say('  检查远端可读性 ...')
+  const tlsState = ensureTlsBackend(target, proxyPort)
+  if (tlsState === 'fail') {
+    say('  [警告] 暂时读不到远端，但仍会尝试推送（可能是临时抖动）')
+  }
+
+  say('')
+  say('  检查远端历史 ...')
+  const lsRemote = gitTry(['ls-remote', 'origin', 'refs/heads/main'])
+  const remoteHasContent = lsRemote.ok && lsRemote.out.trim().length > 0
+
+  if (remoteHasContent) {
+    say('  远端已有内容，先对齐历史 ...')
+    // 拉下远端引用
+    const fetch = gitTry(['fetch', 'origin', 'main'])
+    if (fetch.ok) {
+      // 判断本地与远端是否同源
+      const mergeBase = gitTry(['merge-base', 'main', 'origin/main'])
+      const unrelated = !mergeBase.ok
+
+      if (unrelated) {
+        say('  远端是独立历史（多半是 GitHub 自动生成的 README），')
+        say('  正在合并（保留远端那条提交，但用我们的 README 覆盖它）...')
+        const allow = gitTry([
+          'pull', 'origin', 'main', '--allow-unrelated-histories',
+          '--no-edit', '-X', 'ours'
+        ])
+        if (allow.ok) {
+          say('  合并完成')
+          // 合并后 README 可能变成远端那版，用本地版本覆盖回去
+          git(['checkout', 'HEAD', '--', 'README.md'])
+          const st = gitTry(['status', '--porcelain'])
+          if (st.out.trim()) {
+            git(['add', '.'])
+            git(['commit', '-m', 'docs: 用完整版 README 覆盖 GitHub 自动生成的占位文件'])
+            say('  已恢复完整 README')
+          }
+        } else {
+          say('  [警告] 自动合并失败，将改用强制推送')
+        }
+      } else {
+        say('  历史可快进，直接推送')
+      }
+    }
+  } else {
+    say('  远端为空，直接推送')
   }
 
   say('')
@@ -234,7 +451,37 @@ async function main() {
   if (!pushed) {
     hr('推送未完成')
     const errText = lastErr || ''
-    if (/does not appear to be a git repository|repository not found/i.test(errText)) {
+    if (/Failed to connect to|Could not connect to server|Connection timed out|CONNECT tunnel failed/i.test(errText)) {
+      say('  原因：连不上 GitHub（网络问题，不是代码问题）。')
+      say('')
+      if (proxyApplied) {
+        say('  已自动配置代理 ' + 'http://127.0.0.1:' + proxyPort + '，但仍失败。')
+        say('  可能是代理软件没运行，或端口变了。')
+      } else {
+        say('  没探测到可用代理。')
+      }
+      say('')
+      say('  怎么办：')
+      say('    1. 打开你的代理软件（Clash / v2ray / 各类加速器）')
+      say('    2. 确认它已连接、系统代理已开启')
+      say('    3. 回到这里重跑本脚本 —— 它会重新扫描代理端口')
+      say('')
+      say('  如果你用的是系统代理而非本地端口，可以在 PowerShell 里先设：')
+      say('    $env:HTTPS_PROXY = "http://127.0.0.1:7897"')
+      say('    node push-to-github.js')
+    } else if (/rejected|non-fast-forward|fetch first|Updates were rejected/i.test(errText)) {
+      say('  原因：远端已经有提交，且和本地不是同一条历史。')
+      say('')
+      say('  这通常是因为你在 GitHub 网页端建仓库时勾了 README。')
+      say('  两种解法：')
+      say('')
+      say('    A. 保留远端内容，拉取后再合并（推荐，不丢任何东西）：')
+      say('       git pull origin main --allow-unrelated-histories')
+      say('       git push -u origin main')
+      say('')
+      say('    B. 强制覆盖远端（会丢掉远端已有内容，谨慎）：')
+      say('       git push -u origin main --force')
+    } else if (/does not appear to be a git repository|repository not found/i.test(errText)) {
       say('  原因：GitHub 上还没有这个仓库。')
       say('')
       say('  请先做这一步（1 分钟）：')
