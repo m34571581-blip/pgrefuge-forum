@@ -179,14 +179,76 @@ A：浏览器登录没完成。手动打开 https://github.com 登录一次，�
 **Q：提示 `does not appear to be a git repository`？**
 A：GitHub 上还没建这个仓库。按上面「网页端拖拽上传」的第 1–5 步先建仓库。
 
+**Q：提示 `Failed to connect to github.com:443` 或 `Could not connect to server`？**
+A：网络问题。脚本会自动扫描本机代理端口并配置，但如果你当时没开代理软件，它就找不到。
+先打开代理软件再重跑脚本即可。若代理软件在用别的端口，脚本会提示手动设置：
+
+```powershell
+# 在 PowerShell 里（端口换成你代理软件的实际端口）
+$env:HTTPS_PROXY = "http://127.0.0.1:7897"
+node push-to-github.js
+```
+
+**Q：提示 `schannel: server closed abruptly (missing close_notify)`？**
+A：Windows 的 git 默认用系统 TLS（schannel），国内网络下会被中间设备粗暴切断。
+切到 OpenSSL 即可，脚本会自动做这一件事：
+
+```bash
+git config --local http.sslBackend openssl
+```
+
+**Q：提示 `Updates were rejected` / `non-fast-forward`？**
+A：远端已有独立提交（多半是建仓时勾了 README），和本地不是同一条历史。
+**方案 A（保留远端内容，推荐）**：
+
+```bash
+git fetch origin main
+git merge origin/main --allow-unrelated-histories --no-edit
+# 若提示 README 冲突（两边都有），取本地完整版：
+git checkout --ours README.md
+git add README.md
+git commit -m "merge: 合并远端初始提交"
+git push -u origin main
+```
+
+> 注意这里用 `git merge` 而不是 `git pull`。
+> 分叉状态下 `git pull` 会直接 abort（`Not possible to fast-forward, aborting`），
+> 而 `git merge` 会生成合并提交，**远端那条提交会完整保留在历史里**。
+
+**方案 B（强制覆盖远端，会丢掉远端已有内容）**：
+
+```bash
+git push -u origin main --force
+```
+
 **Q：站点打开是空白 / 显示「数据还没同步」？**
 A：还没跑第 3 步（Run workflow），或者分类名不是「经历」。Actions 页面能看到同步日志。
 
-**Q：想要「每个人都��发经历」，但 GitHub 要登录？**
+**Q：想要「每个人都能发经历」，但 GitHub 要登录？**
 A：这是 GitHub Discussions 的硬性要求（已核实官方文档）。换取的是：零服务器成本、零备案、数据完全归你、审核直接在 GitHub 侧做。对「收集真实语料」这个目标来说划算。
 
 **Q：国内访问慢 / 打不开？**
 A：GitHub 是境外服务，国内访问有延迟。这是「零成本」换来的代价。
+
+---
+
+## 已经配好的 git 配置（不用重复设置）
+
+推送成功后，本仓库的 `.git/config` 里已经写好了：
+
+```
+http.proxy = http://127.0.0.1:7897       ← 代理（Clash 默认端口）
+https.proxy = http://127.0.0.1:7897
+http.sslBackend = openssl               ← 绕开 Windows schannel 的断连问题
+```
+
+这些都是**仓库级**配置（`--local`），不会影响你其他项目。
+
+> 如果你换代理软件或端口变了，在本目录执行：
+> ```bash
+> git config --local http.proxy http://127.0.0.1:新端口
+> git config --local https.proxy http://127.0.0.1:新端口
+> ```
 
 ---
 
