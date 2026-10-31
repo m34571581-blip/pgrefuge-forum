@@ -204,7 +204,14 @@ function summarize(hits) {
   return kinds.map((k) => HIT_LABELS[k] || k)
 }
 
-module.exports = {
+/**
+ * 导出
+ *
+ * 同时支持 CommonJS（Node：同步管道、评测脚本）和浏览器全局
+ * （站点页面的「发帖前预览」直接在本地跑脱敏，不发任何网络请求）。
+ * 同一份源码两种形态 —— 规则不可能漂移。
+ */
+const API = {
   desensitize,
   summarize,
   HIT_LABELS,
@@ -214,4 +221,11 @@ module.exports = {
   GENERIC_ORG,
   ORGS,
   VIRTUAL
+}
+
+if (typeof module !== 'undefined' && module.exports) {
+  module.exports = API
+}
+if (typeof window !== 'undefined') {
+  window.PGDesensitize = API
 }

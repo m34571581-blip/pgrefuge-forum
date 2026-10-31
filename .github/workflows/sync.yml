@@ -68,7 +68,9 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add data/posts.json site/posts.json
+          git add data/posts.json site/posts.json site/desensitize.js
+          # site/desensitize.js 是浏览器端的脱敏引擎（由 sync.js 从 scripts/ 拷贝），
+          # 改了 scripts/desensitize.js 必须一起同步，否则站点预览用的是旧规则。
           # 只在「内容真的变了」时才提交。
           # posts.json 里的 generatedAt 每次生成都变，直接 diff 会导致
           # 每 30 分钟产生一个无意义 commit，把仓库历史刷满。

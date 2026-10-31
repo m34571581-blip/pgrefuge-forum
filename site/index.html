@@ -48,6 +48,60 @@
   }
   .btn-primary:hover { opacity: .88; }
 
+  /* ---------- 发布前脱敏预览 ---------- */
+  .composer {
+    background: var(--paper); border: 1px solid var(--line);
+    border-radius: 12px; padding: 18px 20px; margin-bottom: 26px;
+  }
+  .composer-head {
+    display: flex; align-items: baseline; gap: 12px;
+    flex-wrap: wrap; margin-bottom: 12px;
+  }
+  .composer-head b { font-size: 15px; color: var(--ink); }
+  .composer-tip { font-size: 12px; color: var(--light); }
+  .composer textarea {
+    width: 100%; box-sizing: border-box; resize: vertical;
+    border: 1px solid var(--line); border-radius: 8px;
+    padding: 12px 14px; font-size: 14px; line-height: 1.7;
+    background: var(--card); color: var(--ink);
+    font-family: inherit;
+  }
+  .composer textarea:focus {
+    outline: none; border-color: var(--accent);
+  }
+  .composer-result {
+    margin-top: 12px; padding: 14px 16px;
+    background: var(--card); border: 1px dashed var(--line);
+    border-radius: 8px; min-height: 60px;
+  }
+  .preview-label { font-size: 12px; color: var(--light); margin-bottom: 8px; }
+  .preview-text {
+    font-size: 14px; line-height: 1.8; color: var(--ink);
+    white-space: pre-wrap; word-break: break-word;
+  }
+  .preview-text.is-masked { color: var(--ink); }
+  .hits { margin-top: 10px; display: flex; gap: 6px; flex-wrap: wrap; }
+  .hit {
+    font-size: 11px; padding: 3px 9px; border-radius: 10px;
+    background: var(--green); color: var(--ink);
+  }
+  .composer-actions {
+    margin-top: 14px; display: flex; gap: 10px; flex-wrap: wrap;
+  }
+  .btn-copy, .btn-goto {
+    flex: 1 1 180px; text-align: center; padding: 11px 14px;
+    border-radius: 9px; font-size: 14px; cursor: pointer;
+    border: 1px solid var(--ink); background: var(--ink); color: var(--paper);
+    text-decoration: none; font-family: inherit;
+  }
+  .btn-copy:disabled { opacity: .4; cursor: default; }
+  .btn-goto { background: transparent; color: var(--ink); }
+  .btn-goto:hover { background: var(--card); }
+  .composer-note {
+    margin-top: 10px; font-size: 12px; color: var(--soft); min-height: 16px;
+  }
+  .composer-note.ok { color: var(--green); }
+
   .post {
     background: var(--paper); border: 1px solid var(--line); border-radius: 12px;
     padding: 18px 20px; margin-bottom: 14px; cursor: pointer; transition: border-color .15s;
@@ -143,16 +197,32 @@
   <div class="guide">
     <b>怎么发帖</b>
     <ol>
-      <li>点下面的「写经历」，在 GitHub 上新建一个讨论主题（分类选 <code>experiences</code>）</li>
+      <li>在下面写好你的经历，<b>先看脱敏预览</b> —— 敏感信息会被替换成「某校」「某老师」</li>
+      <li>点「复制脱敏结果」，再到 GitHub 新建讨论主题（分类选 <code>experiences</code>），把内容粘进去</li>
       <li>标题写成 <code>你的处境 [压榨]</code>，标签可选：压榨 / PUA / 谩骂 / 人格污蔑 / Push / 其他</li>
-      <li>正文写下你的经历。<b>不用自己打码</b> —— 学校、学院、导师姓名会由服务端自动替换成「某校」「某老师」</li>
       <li>正文第一行加一句 <code>&gt; 策略: reduce</code>，说明你想怎么应对：
         <code>avoid</code> 忍一忍 · <code>reduce</code> 硬刚回去 · <code>transfer</code> 找人帮忙 · <code>escape</code> 溜之大吉</li>
       <li>想看别人的回应，去该主题的评论区留言即可</li>
     </ol>
   </div>
 
-  <a class="btn-primary" id="newPost" href="#" target="_blank" rel="noopener">写经历</a>
+  <div class="composer">
+    <div class="composer-head">
+      <b>发布前脱敏预览</b>
+      <span class="composer-tip">在你的浏览器里本地运行，内容不会发到任何服务器</span>
+    </div>
+    <textarea id="draft" rows="5" placeholder="写下你的经历……比如：我们在结构力学实验室通宵做实验，导师姓李，总是叫我马上去他办公室"></textarea>
+    <div class="composer-result" id="previewBox">
+      <div class="preview-label" id="previewLabel">脱敏预览会显示在这里</div>
+      <div class="preview-text" id="previewText"></div>
+      <div class="hits" id="previewHits"></div>
+    </div>
+    <div class="composer-actions">
+      <button type="button" class="btn-copy" id="copyBtn" disabled>复制脱敏结果</button>
+      <a class="btn-goto" id="newPost" href="#" target="_blank" rel="noopener">去 GitHub 发帖 →</a>
+    </div>
+    <div class="composer-note" id="copyNote"></div>
+  </div>
 
   <div class="tabs">
     <div class="tab active" data-sort="latest">最新</div>
@@ -176,6 +246,7 @@
 </div>
 
 <script src="config.js"></script>
+<script src="desensitize.js"></script>
 <script>
 (function () {
   const CFG = window.PG_CONFIG || {}
@@ -190,6 +261,99 @@
     '/discussions/new?category=' + encodeURIComponent(CATEGORY_SLUG)
 
   const state = { posts: [], sort: 'latest', tag: 'all' }
+
+  // ---- 发布前脱敏预览 ----
+  //
+  // 脱敏在浏览器本地跑（desensitize.js 由同步脚本从 scripts/ 自动拷贝过来，
+  // 与服务端跑的是同一份源码，规则不可能漂移）。
+  //
+  // 为什么要做这个：
+  //   用户在 GitHub 发帖写的是原文，那一刻原文对所有人可见。
+  //   即使同步任务会在 1 分钟内覆写，中间仍有窗口。
+  //   有了预览，用户发出去的就已经是脱敏后的内容 ——
+  //   GitHub 上从头到尾没有出现过原文。
+  const DES = window.PGDesensitize
+
+  function renderPreview() {
+    const draft = document.getElementById('draft')
+    const textEl = document.getElementById('previewText')
+    const labelEl = document.getElementById('previewLabel')
+    const hitsEl = document.getElementById('previewHits')
+    const copyBtn = document.getElementById('copyBtn')
+    const noteEl = document.getElementById('copyNote')
+    const raw = draft.value
+
+    if (!raw.trim()) {
+      textEl.textContent = ''
+      textEl.className = 'preview-text'
+      labelEl.textContent = '脱敏预览会显示在这里'
+      hitsEl.innerHTML = ''
+      copyBtn.disabled = true
+      noteEl.textContent = ''
+      noteEl.className = 'composer-note'
+      return
+    }
+
+    if (!DES) {
+      labelEl.textContent = '脱敏引擎未加载'
+      copyBtn.disabled = true
+      return
+    }
+
+    const r = DES.desensitize(raw)
+    textEl.textContent = r.content
+    textEl.className = 'preview-text' + (r.changed ? ' is-masked' : '')
+    labelEl.textContent = r.changed
+      ? '以下是发布后其他人看到的内容（已自动脱敏）'
+      : '未检测到敏感信息，将原样发布'
+
+    const labels = DES.summarize(r.hits)
+    hitsEl.innerHTML = labels
+      .map(function (l) { return '<span class="hit">' + l + '</span>' })
+      .join('')
+
+    copyBtn.disabled = false
+    noteEl.textContent = r.changed
+      ? '已替换 ' + labels.length + ' 类敏感信息'
+      : ''
+    noteEl.className = 'composer-note'
+  }
+
+  function initComposer() {
+    const draft = document.getElementById('draft')
+    const copyBtn = document.getElementById('copyBtn')
+    const noteEl = document.getElementById('copyNote')
+    if (!draft) return
+
+    draft.addEventListener('input', renderPreview)
+
+    copyBtn.addEventListener('click', function () {
+      const raw = draft.value
+      if (!raw.trim() || !DES) return
+      const out = DES.desensitize(raw).content
+      const done = function () {
+        noteEl.textContent = '已复制脱敏后的内容，粘贴到 GitHub 即可'
+        noteEl.className = 'composer-note ok'
+      }
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(out).then(done, function () {
+          noteEl.textContent = '复制失败，请手动选中下方文本'
+          noteEl.className = 'composer-note'
+        })
+      } else {
+        // 降级：用临时 textarea + execCommand
+        const ta = document.createElement('textarea')
+        ta.value = out
+        document.body.appendChild(ta)
+        ta.select()
+        try { document.execCommand('copy'); done() } catch (e) {
+          noteEl.textContent = '复制失败，请手动选中下方文本'
+          noteEl.className = 'composer-note'
+        }
+        document.body.removeChild(ta)
+      }
+    })
+  }
 
   const STRATEGY_LABEL = {
     avoid: '忍一忍', reduce: '硬刚回去', transfer: '找人帮忙', escape: '溜之大吉'
@@ -357,6 +521,10 @@
         '<div class="empty">数据还没同步。<br><br>运行 <code>node scripts/sync.js</code> ' +
         '后会生成 posts.json。</div>'
     })
+
+  // 发布前脱敏预览的初始化放在最外层 ——
+  // 它不依赖数据是否加载成功，即使 posts.json 拉不到，预览也照样能用。
+  initComposer()
 })()
 </script>
 </body>
