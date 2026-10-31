@@ -52,7 +52,10 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_OWNER: ${{ github.repository_owner }}
           GH_REPO: ${{ github.event.repository.name }}
-          GH_CATEGORY: 经历
+          GH_CATEGORY: experiences
+          # 兼容旧分类名：改名过渡期两边都拉，避免断档。
+          # 确认改名完成、且旧分类下没有遗漏内容后，可以清空这一行。
+          GH_CATEGORY_ALIASES: 经历
         run: node scripts/sync.js
 
       - name: 提交更新

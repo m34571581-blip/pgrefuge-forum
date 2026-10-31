@@ -143,7 +143,7 @@
   <div class="guide">
     <b>怎么发帖</b>
     <ol>
-      <li>点下面的「写经历」，在 GitHub 上新建一个讨论主题（分类选「经历」）</li>
+      <li>点下面的「写经历」，在 GitHub 上新建一个讨论主题（分类选 <code>experiences</code>）</li>
       <li>标题写成 <code>你的处境 [压榨]</code>，标签可选：压榨 / PUA / 谩骂 / 人格污蔑 / Push / 其他</li>
       <li>正文写下你的经历。<b>不用自己打码</b> —— 学校、学院、导师姓名会由服务端自动替换成「某校」「某老师」</li>
       <li>正文第一行加一句 <code>&gt; 策略: reduce</code>，说明你想怎么应对：
@@ -180,10 +180,10 @@
 (function () {
   const CFG = window.PG_CONFIG || {}
   const REPO = CFG.repo || 'your-username/pgrefuge-forum'
-  const CATEGORY = CFG.category || '经历'
+  const CATEGORY = CFG.category || 'experiences'
   // GitHub 的 /discussions/new?category= 认的是分类 slug，不是显示名。
-  // 对中文分类，GitHub 不做拼音转写，slug 就等于显示名（「经历」→ 经历）；
-  // 但 ASCII 分类不同（General → general），所以显示名和 slug 分开配。
+  // 分类名用英文（技术参数一律英文），slug 与名字一致；
+  // 但不能假设永远相等（General 的 slug 是 general），所以分开配。
   // 优先用同步脚本写进 posts.json 的真实 slug，没有则用 config 里的兜底值。
   let CATEGORY_SLUG = CFG.categorySlug || CATEGORY
   const NEW_DISCUSSION = 'https://github.com/' + REPO +

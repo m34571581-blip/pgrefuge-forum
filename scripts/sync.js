@@ -28,7 +28,14 @@ const SITE_DIR = path.join(ROOT, 'site')
 // ---- 配置 ----
 const OWNER = process.env.GH_OWNER || 'your-username'
 const REPO = process.env.GH_REPO || 'pgrefuge-forum'
-const CATEGORY = process.env.GH_CATEGORY || '经历'
+// 目标分类名。技术参数一律用英文。
+const CATEGORY = process.env.GH_CATEGORY || 'experiences'
+// 兼容旧分类名：改名过渡期两边都要能拉到，避免同步断档。
+// 用 GH_CATEGORY_ALIASES 覆盖，默认只认主分类名。
+const CATEGORY_ALIASES = (process.env.GH_CATEGORY_ALIASES || '')
+  .split(',')
+  .map((s) => s.trim())
+  .filter(Boolean)
 const TOKEN = process.env.GITHUB_TOKEN || ''
 
 /** 分类标签 → 产品内的类型标签 */
@@ -205,24 +212,26 @@ async function main() {
   // 只保留目标分类下的主题。
   // GitHub Discussions 建仓时自带 General / Q&A / Ideas 等默认分类，
   // 如果不过滤，这些跟产品无关的内容会混进论坛数据里。
+  // 别名用于分类改名过渡期 —— 新旧分类名同时认，避免同步断档。
+  const acceptedNames = [CATEGORY, ...CATEGORY_ALIASES].filter(Boolean)
   const allDiscussions = repoData.discussions.nodes || []
-  const discussions = CATEGORY
-    ? allDiscussions.filter((d) => d.category && d.category.name === CATEGORY)
+  const discussions = acceptedNames.length
+    ? allDiscussions.filter((d) => d.category && acceptedNames.indexOf(d.category.name) !== -1)
     : allDiscussions
 
   const aliases = buildAliasMap(discussions)
 
   console.log('原始主题数:', repoData.discussions.totalCount, '| 本次拉取:', allDiscussions.length)
-  console.log(`分类「${CATEGORY}」下的主题:`, discussions.length)
+  console.log(`分类「${acceptedNames.join('」/「')}」下的主题:`, discussions.length)
   console.log('参与用户数:', Object.keys(aliases).length)
 
   // 分类名写错是最容易犯也最难发现的错误 —— 静默返回 0 条，
   // 站点看起来就是「没人发帖」，很难联想到是分类名不对。
-  if (CATEGORY && discussions.length === 0) {
+  if (acceptedNames.length && discussions.length === 0) {
     const cats = (repoData.discussionCategories && repoData.discussionCategories.nodes) || []
     console.warn('')
     console.warn('⚠ 没有拉到任何主题。可能原因：')
-    console.warn(`  · 分类名「${CATEGORY}」在 GitHub 上不存在（名称必须完全一致）`)
+    console.warn(`  · 分类名「${acceptedNames.join('」「')}」在 GitHub 上不存在（名称必须完全一致）`)
     if (cats.length) {
       console.warn('  · GitHub 上现有的分类是：' + cats.map((c) => c.name).join('、'))
     }
@@ -287,9 +296,13 @@ async function main() {
   // 把分类的真实 slug 一起输出。
   // 前端拼「写经历」链接时需要它 —— GitHub 的 /discussions/new?category=
   // 认的是 slug，而 ASCII 分类名的 slug 是小写转写（如 General → general），
-  // 中文分类则恰好等于 URL 编码后的名字。不能想当然用显示名。
+  // 不能想当然用显示名。
   const cats = (repoData.discussionCategories && repoData.discussionCategories.nodes) || []
-  const targetCat = cats.find((c) => c.name === CATEGORY)
+  // 优先取主分类的 slug；主分类还没建好时退回任一别名分类，
+  // 保证过渡期链接也指向正确的分类。
+  const targetCat =
+    cats.find((c) => c.name === CATEGORY) ||
+    cats.find((c) => acceptedNames.indexOf(c.name) !== -1)
   if (targetCat) {
     stats.categorySlug = targetCat.slug
     stats.categoryName = targetCat.name

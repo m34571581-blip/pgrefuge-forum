@@ -124,10 +124,13 @@ pgrefuge-forum/
 | 位置 | 必须写成 |
 |---|---|
 | 仓库名 | `pgrefuge-forum` |
-| Discussions 分类名 | `经历`（中文，两个字） |
+| Discussions 分类名 | `experiences`（英文） |
 | `site/config.js` 的 `repo` | `你的用户名/pgrefuge-forum` |
 
-脚本会自动帮你改 `config.js`。但**分类名「经历」得你手动建**，写错一个字同步就拉不到数据。
+脚本会自动帮你改 `config.js`。但**分类名 `experiences` 得你手动建**，写错一个字母同步就拉不到数据。
+
+> **命名约定**：技术参数（分类名、slug、环境变量值）一律用英文 —— 它们会出现在命令行、URL 和配置里，
+> 用英文可避免编码问题，也让排查更直观。中文只保留在面向用户的界面文案里。
 
 ---
 
@@ -140,10 +143,10 @@ pgrefuge-forum/
 仓库页 → 右上角 **Settings** → 左侧 **General** → 拉到最下
 勾选 **Discussions** → Save
 
-### 2️⃣ 建分类「经历」
+### 2️⃣ 建分类 experiences
 
 仓库页顶部 **Discussions** 标签 → 右侧 **New category**
-名字填 `经历`，描述随便写 → Create
+名字填 `experiences`，描述随便写 → Create
 
 ### 3️⃣ 开 Pages 并跑一次同步
 
@@ -162,7 +165,7 @@ https://你的用户名.github.io/pgrefuge-forum/
 
 Discussions 分类建好之后：
 
-- **发帖**：Discussions → New discussion → 选「经历」分类
+- **发帖**：Discussions → New discussion → 选 `experiences` 分类
   - 标题写 `[压榨] 你的标题`（方括号里是标签，同步脚本会识别）
   - 正文第一行写 `> 策略: reduce`（reduce=硬刚回去 / avoid=忍一忍 / transfer=找人帮忙 / escape=溜之大吉）
 - **评论**：在帖子里回复。脚本会把 GitHub 用户名转成诗意代号（「晚风」「山雀」），原用户名不会出现在公开页面上
@@ -222,7 +225,7 @@ git push -u origin main --force
 ```
 
 **Q：站点打开是空白 / 显示「数据还没同步」？**
-A：还没跑第 3 步（Run workflow），或者分类名不是「经历」。Actions 页面能看到同步日志。
+A：还没跑第 3 步（Run workflow），或者分类名不是 `experiences`。Actions 页面能看到同步日志。
 
 **Q：想要「每个人都能发经历」，但 GitHub 要登录？**
 A：这是 GitHub Discussions 的硬性要求（已核实官方文档）。换取的是：零服务器成本、零备案、数据完全归你、审核直接在 GitHub 侧做。对「收集真实语料」这个目标来说划算。
