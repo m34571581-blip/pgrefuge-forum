@@ -7,12 +7,12 @@
  *   category      —— 分类的「显示名」，同步脚本按它筛帖子
  *   categorySlug  —— 分类的「URL slug」，拼发帖链接用
  *
- * 两者不一定相同：ASCII 分类的 slug 是小写转写（General → general），
- * 中文分类则由 GitHub 转成拼音（经历 → jingli）。
- * 所以显示名和 slug 要分开配，别想当然。
+ * 对中文分类来说，GitHub 不做拼音转写，slug 就等于显示名本身
+ * （「经历」的 slug 也是「经历」）。但 ASCII 分类不同：
+ * General 的 slug 是 general（小写转写），所以两者不能混用。
  *
- * slug 可以从 GitHub 拿到（同步脚本会自动写进 posts.json 的 stats.categorySlug），
- * 这里填的是兜底值 —— 万一还没同步过，链接也不能指错地方。
+ * 同步脚本会从 GraphQL 拿到真实 slug 写进 posts.json 的 stats.categorySlug，
+ * 前端优先用它。这里填的是兜底值 —— 万一还没同步过，链接也不能指错地方。
  */
 window.PG_CONFIG = {
   // GitHub 仓库，格式 所有者/仓库名
@@ -22,5 +22,6 @@ window.PG_CONFIG = {
   category: '经历',
 
   // Discussions 分类 slug（拼 /discussions/new?category= 用）
-  categorySlug: 'jingli'
+  // 实测：中文分类的 slug 等于显示名，即「经历」
+  categorySlug: '经历'
 };
