@@ -1,16 +1,34 @@
 {
   "stats": {
-    "totalPosts": 0,
+    "totalPosts": 1,
     "totalComments": 0,
-    "uniqueAuthors": 0,
-    "taggedCounts": {},
-    "strategyCounts": {},
+    "uniqueAuthors": 1,
+    "taggedCounts": {
+      "压榨": 1
+    },
+    "strategyCounts": {
+      "reduce": 1
+    },
     "withSensitiveHits": 0,
-    "firstPostAt": null,
-    "lastPostAt": null,
-    "generatedAt": "2026-10-31T13:20:13.312Z",
-    "categorySlug": "经历",
-    "categoryName": "经历"
+    "firstPostAt": "2026-10-31T13:38:25Z",
+    "lastPostAt": "2026-10-31T13:38:25Z",
+    "generatedAt": "2026-10-31T13:38:33.187Z",
+    "categorySlug": "experiences",
+    "categoryName": "experiences"
   },
-  "posts": []
+  "posts": [
+    {
+      "number": 1,
+      "title": "老师每次叫我都是让我立刻去办公室",
+      "content": "I was busying doing my work, and one of my teachers texted me to go to his office, for something that was no need to go to office to talk about. I hate Mr.Liu who pushs me and yelled at me even i did'n do nothing wrong.",
+      "tag": "压榨",
+      "strategy": "reduce",
+      "alias": "晚风",
+      "createdAt": "2026-10-31T13:38:25Z",
+      "url": "https://github.com/m34571581-blip/pgrefuge-forum/discussions/1",
+      "hitLabels": [],
+      "commentCount": 0,
+      "comments": []
+    }
+  ]
 }
