@@ -5,6 +5,9 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>PGrefuge · 研究生庇护所</title>
 <meta name="description" content="面向在校研究生的匿名倾诉社区。服务端强制脱敏，不采集任何身份信息。">
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
+<meta http-equiv="Expires" content="0">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%234A443E'/%3E%3Ctext x='16' y='23' font-size='18' text-anchor='middle' fill='%23FBF8F4' font-family='sans-serif'%3EP%3C/text%3E%3C/svg%3E">
 <style>
   :root {
@@ -492,7 +495,15 @@
   })
 
   // 载入数据
-  fetch('posts.json')
+  //
+  // cache: 'no-store' —— 必须禁用缓存。
+  // GitHub Pages 对静态资源返回 Cache-Control: max-age=600，
+  // 浏览器会直接用本地副本、根本不重新请求。
+  // 结果是：管理员删了帖、站点却还显示着旧内容，最多滞后 10 分钟。
+  // 论坛数据每 30 分钟才更新一次，10 分钟的缓存误差已经占了三分之一，
+  // 而且「明明删了却还在」这种问题最让人怀疑是不是没删掉。
+  // 加上时间戳参数再配合 no-store，保证每次都拿最新数据。
+  fetch('posts.json?t=' + Date.now(), { cache: 'no-store' })
     .then(function (r) {
       if (!r.ok) throw new Error('HTTP ' + r.status)
       return r.json()
