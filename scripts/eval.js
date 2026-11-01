@@ -104,6 +104,27 @@ const CASES = [
   { t: 'my advisor Liu gave me advice.', expect: 'mask', note: '英文小写职衔 → advisor Someone' },
   { t: '我们组的 Liu Professor 很强', expect: 'mask', note: '中式英文 → Someone Professor' },
   { t: '我在 Tsinghua University 读研，导师姓李', expect: 'mask', note: '中英混排：英文机构 + 中文姓氏各自跟随' },
+
+  // ---------- 鲁棒性：大小写 / 分隔符 / 变体 ----------
+  // 来源：真实用户反馈「姓氏写成全大写就识别不了」。
+  // 用户手打、输入法联想、全大写强调、复制粘贴的标点，都会产生这些变体。
+  { t: 'Mr.LIU called me', expect: 'mask', note: '全大写姓（Mr. 锚点）' },
+  { t: 'PROFESSOR WANG is strict', expect: 'mask', note: '全大写完整称谓' },
+  { t: 'MY ADVISOR LIU is strict', expect: 'mask', note: '全大写职衔' },
+  { t: 'TSINGHUA UNIVERSITY', expect: 'mask', note: '全大写机构名' },
+  { t: 'Mr. Liu Jr. called me', expect: 'mask', note: '姓 + 后缀 Jr.' },
+  { t: 'Mr. Smith-Jones called me', expect: 'mask', note: '连字符复合姓（两段都要脱敏）' },
+  { t: 'Liu is my advisor', expect: 'mask', note: '纯姓形态（姓在句首）' },
+  { t: '李（老师）很凶', expect: 'mask', note: '姓名与称谓之间有全角括号' },
+  { t: '李[老师]很凶', expect: 'mask', note: '姓名与称谓之间有方括号' },
+  { t: '星洲大学（自动化学院）', expect: 'mask', note: '嵌套括号' },
+  { t: '欧阳教授训我', expect: 'mask', note: '复姓' },
+  { t: '陳教授很嚴厲', expect: 'mask', note: '繁体字' },
+
+  // 鲁棒性负样本：这些绝不能被误伤
+  { t: 'I work at NASA and IBM.', expect: 'keep', note: '全大写缩写不是姓名' },
+  { t: 'I am a Professor of Physics', expect: 'keep', note: '称谓后没有姓名' },
+  { t: '我在研究生院读研', expect: 'keep', note: '读研不是「读+研」' },
 ]
 
 function main() {

@@ -63,6 +63,58 @@ const NAME = '(?:' + VIRTUAL + '[一-龥A-Za-z0-9])'
 const NAME_CN = '(?:' + VIRTUAL + '[一-龥])'
 
 /**
+ * 名称与机构词/称谓之间的分隔符
+ *
+ * 为什么需要：「李 老师」「李-老师」「星洲大学-自动化学院」
+ * 这类写法在真实场景里很常见 —— 尤其是从聊天记录、PDF、邮件里复制粘贴的内容。
+ * 原来的规则要求名称与后缀紧邻，遇到分隔符就漏检。
+ *
+ * 关键约束（三条都踩过）：
+ *   1. **不含汉字** —— 否则贪婪匹配会把称谓本身吃进分隔符组，
+ *      「李（老师）」会变成「某（）」，称谓丢了反而更糟。
+ *   2. **不含圆括号** —— 括号在中文里是「包住」后缀的，不是夹在中间的。
+ *      把 `（）` 放进分隔符会让正则把左括号当分隔符吃掉，
+ *      机构词匹配错位（捕获到「（」而不是「实验室」）。
+ *      括号由下面的 BRACKET 单独处理。
+ *   3. **不含逗号句号等句子分隔符** —— 「读研，导师」会被当成
+ *      「姓名，导师」整段匹配，把「读研」脱敏成「某」。
+ *      名称和称谓之间只可能有空白、连字符这类连接符，
+ *      不可能有句读。
+ *
+ * 用**命名捕获组**（?<sep>）而不是普通捕获组：
+ *   命名组仍占编号（只有 (?:) 才是纯不捕获），
+ *   但取值按名字来，不受其他可选组增减的影响。
+ */
+const SEP =
+  '(?<sep>(?:(?![一-龥])[\\s\\-–—_·・' +
+  '－~～/\\\\])*?)'
+
+/**
+ * 可选的成对括号（包住后缀）
+ *
+ * 「结构力学（实验室）」「李（老师）」「李[老师]」
+ * —— 括号在中文书写习惯里是**包住**后缀的。
+ *
+ * 实现要点（三个坑都踩过）：
+ *
+ * 1. **左右括号必须成对**。如果拆成两个独立可选组，
+ *    正则会在捕获组后停下，右括号落在匹配之外成了孤儿 ——
+ *    输出变成「我在某实验室）通宵」。
+ *
+ * 2. **方括号用 Unicode 转义**（`[`, `]`），
+ *    不直接写字面量。
+ *    之前写过 `[)）\]...]`，JS 字符串里的 `\]` 不是有效转义序列
+ *    （反斜杠被丢弃），字符类提前闭合，右括号永远匹配不上。
+ *    后来试「首位写法」`[]()...]`，两个连续方括号又让解析器
+ *    报 Unterminated group。
+ *    用 `\u005B` / `\u005D` 是最稳的 —— 转义序列本身没有歧义。
+ *
+ * 3. 括号内的空白不进捕获组，否则会把后缀顶掉。
+ */
+const BRACKET_OPEN = '(?:[\\u005B\\u0028\\uFF08\\u3010\\u300A\\u3008\\u300C\\u300E]\\s*)?'
+const BRACKET_CLOSE = '(?:[\\u005D\\u0029\\uFF09\\u3011\\u300B\\u3009\\u300D\\u300F])?'
+
+/**
  * 英文脱敏规则
  *
  * 结构上比中文简单：英文没有汉字锚点，只能靠称谓/职衔本身定位。
@@ -70,19 +122,95 @@ const NAME_CN = '(?:' + VIRTUAL + '[一-龥])'
  * 避免误伤普通英文（the teacher、my professor 这类不带姓名的表达）。
  */
 
-/** 缩写式称谓（后面跟姓）：Mr.Liu / Dr. Smith / Prof. Zhang */
-const EN_TITLE_DOT = '(?:Mr|Mrs|Ms|Dr|Prof|Prof\\.|Sr|Jr)'
+/**
+ * 生成英文词的大小写变体正则
+ *
+ * 为什么需要：英文的称谓可能被写成任意大小写。
+ *   Professor / PROFESSOR / Mr. / MR. 都见过。
+ *   手写 `[Pp]rofessor` 这种只能覆盖首字母变体，覆盖不了全大写。
+ *   用代码生成「首字母大写 | 全大写」两种形态，不会漏、也不会写错。
+ *
+ * 小写形态（professor）刻意不覆盖 ——
+ *   小写称谓在英文里通常是不带姓名的泛称（my professor was absent），
+ *   把它当姓名会误伤。
+ *
+ * 纯大写词（II / III / IV 这类罗马数字）只保留大写形态 ——
+ *   首字母大写化会把 II 变成 Ii，那是另一个词，会造成误匹配。
+ */
+function enVariants(words) {
+  return words
+    .map(function (w) {
+      const upper = w.toUpperCase()
+      // 全大写词（罗马数字、缩写）不再生成首字母大写变体
+      if (w === upper) return upper
+      const cap = w[0].toUpperCase() + w.slice(1).toLowerCase()
+      return cap === upper ? cap : cap + '|' + upper
+    })
+    .join('|')
+}
 
-/** 完整称谓（后面跟姓）：Professor Wang / Advisor Liu */
-const EN_TITLE = '(?:Professor|Advisor|Supervisor|Teacher|Tutor|Mentor|Coordinator|Director|Head|Chair)'
+/** 缩写式称谓（后面跟姓）：Mr.Liu / MR.LIU / Dr. Smith */
+const EN_TITLE_DOT = '(?:' + enVariants(['Mr', 'Mrs', 'Ms', 'Dr', 'Prof', 'Sr', 'Jr']) + ')'
 
-/** 英文机构词 */
-const EN_ORG = '(?:University|College|Institute|Laboratory|Lab|School|Academy|Polytechnic)'
+/** 完整称谓（后面跟姓）：Professor Wang / PROFESSOR WANG / Advisor Liu */
+const EN_TITLE = '(?:' + enVariants([
+  'Professor', 'Advisor', 'Supervisor', 'Teacher', 'Tutor',
+  'Mentor', 'Coordinator', 'Director', 'Head', 'Chair'
+]) + ')'
 
-/** 像英文姓名的词：首字母大写 + 至少一个字母（排除全大写缩写如 MIT） */
-const EN_NAME = '[A-Z][a-z]{1,15}'
+/** 小写职衔（后面跟姓）：advisor Liu / advisor LIU */
+const EN_TITLE_LOWER = '(?:advisor|supervisor|mentor|tutor)'
 
-/** 像英文机构名的词组：Tsinghua / New York */
+/** 英文机构词（支持全大写：TSINGHUA UNIVERSITY） */
+const EN_ORG = '(?:' + enVariants([
+  'University', 'College', 'Institute', 'Laboratory', 'Lab',
+  'School', 'Academy', 'Polytechnic'
+]) + ')'
+
+/**
+ * 像英文姓名的词
+ *
+ * 两种形态，用途不同：
+ *
+ *   EN_NAME_STRICT —— 首字母大写 + 小写（Liu / Smith）
+ *     用于「纯姓形态」的识别。必须是这个形态，否则
+ *     "Liu is my advisor" 里的 Liu 和 "NASA" 无法区分。
+ *
+ *   EN_NAME_ANY —— 首字母大写 + 任意大小写字母（Liu / LIU）
+ *     用于「有称谓锚点」的识别。前面已经限定了 Mr./Prof./advisor，
+ *     上下文已经提供了足够强的信号，这时大小写不该再成为漏检的理由 ——
+ *     用户手打、输入法联想、全大写强调都可能导致 LIU 这种写法。
+ *
+ * 边界：至少 2 个字母，避免把单字母缩写误当姓名。
+ */
+const EN_NAME_STRICT = '[A-Z][a-z]{1,15}'
+const EN_NAME_ANY = '[A-Z][A-Za-z]{1,15}'
+
+/**
+ * 姓的可选后缀与连字符部分
+ *
+ * Smith-Jones  →  两段都要脱敏，不能只换前半段（那会留下真名 Jones）
+ * Liu Jr.      →  后缀保留
+ *
+ * 两个坑（都踩过）：
+ *
+ * 1. 后缀里的罗马数字（II/III/IV）会和姓名里的字母冲突 ——
+ *    "LIU" 里的 I 能被当成 IV 的开头，结果输出成 "Someone3"。
+ *    修法：后缀前加负向断言，要求它前面是**非字母**。
+ *    这样 "LIU" 不会被误读成 "L" + "IU" 后缀。
+ *
+ * 2. 后缀组必须用**命名捕获组**（?<sfx>）——
+ *    之前用普通捕获组时，正则里其他可选组的存在与否会改变捕获组编号，
+ *    build 函数拿到的第 3 个参数就成了 replace 回调的 **offset（数字）**，
+ *    于是输出成 "Someone3" 这种鬼样子。
+ *    命名捕获组按名字取，不受编号漂移影响。
+ */
+const EN_NAME_PART =
+  EN_NAME_ANY + '(?:\\s*-\\s*' + EN_NAME_ANY + ')?'
+const EN_NAME_SUFFIX =
+  '(?:(?<![A-Za-z])\\s+(?<sfx>' + enVariants(['Jr', 'Sr', 'II', 'III', 'IV']) + ')\\.?)?'
+
+/** 像英文机构名的词组：Tsinghua / New York / TSINGHUA */
 const EN_ORG_NAME = '[A-Z][a-zA-Z]{1,20}(?:\\s+[A-Z][a-zA-Z]{1,20}){0,2}'
 
 // 与服务端 chr() 标记同构（用 String.fromCharCode，避免源码里出现控制字符）
@@ -155,6 +283,42 @@ const MASK_EN = {
   orgEn: '___'
 }
 
+/**
+ * 清掉没有配对左括号的闭合符号
+ *
+ * 替换后可能出现「某校（某学院」这种括号不配对的残留。
+ * 做法：逐个字符扫描，维护一个左括号栈；
+ * 遇到闭合符号时，栈为空说明没有配对的左括号，删掉它。
+ */
+function removeOrphanClosers(text) {
+  const OPEN = '（(【《〈「『\u005B'
+  const CLOSE = '）)】》〉」』\u005D'
+  const stack = []
+  let out = ''
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i]
+    if (OPEN.indexOf(c) !== -1) {
+      stack.push(i) // 记录左括号在 out 里的位置
+      out += c
+    } else if (CLOSE.indexOf(c) !== -1) {
+      if (stack.length) {
+        stack.pop()
+        out += c
+      }
+      // 栈为空 → 孤立的闭合符号，直接丢弃
+    } else {
+      out += c
+    }
+  }
+  // 栈里剩下的左括号都没有配对的右括号，也一并删掉
+  // （删除要从后往前，否则下标会错位）
+  let positions = stack.slice().sort(function (a, b) { return b - a })
+  for (const pos of positions) {
+    out = out.slice(0, pos) + out.slice(pos + 1)
+  }
+  return out
+}
+
 /** 判定一段文本的主体语言：'cn' / 'en' */
 function detectLang(text) {
   const cn = (String(text).match(/[一-龥]/g) || []).length
@@ -190,29 +354,50 @@ function desensitize(text) {
     let n = 0
     out = out.replace(re, function () {
       n++
-      return build.apply(null, arguments)
+      // 命名捕获组在最后一个参数（groups 对象）里。
+      // 用它取分隔符/后缀，避免依赖捕获组的编号 ——
+      // 正则里可选组的多寡会改变编号，位置参数会漂移。
+      // （曾经因为这个，build 收到的第 3 个参数其实是 replace 的 offset，
+      //   输出成了 "Someone3"。）
+      const args = Array.prototype.slice.call(arguments)
+      const groups = args[args.length - 1]
+      const g = (groups && typeof groups === 'object') ? groups : {}
+      // 命名捕获组（?<name>）**仍然占编号** —— 只有 (?:) 才是纯不捕获。
+      // 所以带命名组的正则里，位置参数的编号会整体后移。
+      // 因此这里统一用命名组取值，位置参数只当兜底，
+      // 避免「改一个可选组就错位」的坑。
+      const sep = g.sep !== undefined ? g.sep : ''
+      const sfx = g.sfx !== undefined ? g.sfx : ''
+      return build.call(this, args[0], args[1], args[2], args[3], sep, sfx)
     })
     if (n > 0) hits.push({ kind, count: n, lang: lang || 'cn' })
   }
 
   // p4 学校 / 院校 → 某校
-  step(new RegExp('(' + NAME_CN + '{1,8})(大学|学校|院校)', 'g'), 'school',
-    () => M2 + MASK_CN.school + M2, 'cn')
+  step(new RegExp('(' + NAME_CN + '{1,8})' + SEP + BRACKET_OPEN + '(大学|学校|院校)' + BRACKET_CLOSE, 'g'), 'school',
+    function (m, g1, g2, g3, sep) { return M2 + MASK_CN.school + (sep || '') + M2 }, 'cn')
   // p5 学院 / 学系 → 某学院
-  step(new RegExp('(' + NAME_CN + '{1,8})(学院|学系)', 'g'), 'college',
-    () => M2 + MASK_CN.college + M2, 'cn')
+  step(new RegExp('(' + NAME_CN + '{1,8})' + SEP + BRACKET_OPEN + '(学院|学系)' + BRACKET_CLOSE, 'g'), 'college',
+    function (m, g1, g2, g3, sep) { return M2 + MASK_CN.college + (sep || '') + M2 }, 'cn')
   // p6 课题组 / 实验室 → 某X
   //    捕获组允许英文（NAME 含 A-Za-z），所以「Tsinghua Lab」也会命中 ——
   //    但英文机构由 e5 规则接手并给出英文占位符，这里按捕获组实际语言决定。
-  step(new RegExp('(' + NAME + '{1,12})(课题组|实验室|科研团队|团队)', 'g'), 'team',
-    (m, g1, g2) => {
+  step(new RegExp('(' + NAME + '{1,12})' + SEP + BRACKET_OPEN + '(课题组|实验室|科研团队|团队)' + BRACKET_CLOSE, 'g'), 'team',
+    function (m, g1, g2, g3, sep) {
       const en = detectLang(g1) === 'en'
       const mask = en ? MASK_EN.team : MASK_CN.team
-      return M2 + mask + g2 + M2
+      // 「结构力学（实验室）」→ 机构词被移到前面后，原来包裹它的括号会变成空壳。
+      // 纯标点/括号的分隔符整段丢掉（连左括号带右括号一起），
+      // 只保留含有实际内容的分隔符（如「星洲大学-自动化学院」里的连字符）。
+      const s = sep || ''
+      const keepSep = /[\u4e00-\u9fa5A-Za-z0-9]/.test(s) ? s : ''
+      return M2 + mask + (g3 || '') + keepSep + M2
     }, 'auto')
   // p7 姓名 + 称谓 → 某称谓
-  step(new RegExp('(' + NAME_CN + '{1,2}?)' + TITLES, 'g'), 'person',
-    (m, g1, g2) => M2 + MASK_CN.person + g2 + M2, 'cn')
+  //    姓名与称谓之间允许插入分隔符 —— 「李（老师）」「李 老师」「李-老师」
+  //    这类写法很常见，尤其是从聊天记录或 PDF 里复制出来的。
+  step(new RegExp('(' + NAME_CN + '{1,2}?)' + SEP + BRACKET_OPEN + '(' + TITLES + ')' + BRACKET_CLOSE, 'g'), 'person',
+    function (m, g1, g2, g3, sep) { return M2 + MASK_CN.person + (sep || '') + (g3 || '') + M2 }, 'cn')
   // p8 「姓X」→「姓某」
   step(/姓([一-龥]{1,2})/g, 'surname', () => M2 + MASK_CN.surname + M2, 'cn')
 
@@ -224,49 +409,86 @@ function desensitize(text) {
   // 英文的语序和中文相反 —— 英文是「称谓 + 姓」（Professor Wang），
   // 中文是「姓 + 称谓」（王教授）。两种都覆盖，但主规则必须是「称谓 + 姓」。
 
-  // e1 缩写称谓 + 姓：Mr.Liu → Mr. Someone
-  //    要求点号紧跟姓，或称谓与姓之间有空格（两种写法都覆盖）
+  // e1 完整称谓 + 姓：Professor Wang / PROFESSOR WANG → Professor Someone
+  //    必须排在 e2（缩写称谓）之前 —— 否则 "PROFESSOR" 会被 "PROF" 抢先匹配，
+  //    把 ESSOR 当成姓吃掉，输出成 "PROF. Someone"。
+  //    称谓后面要求不紧跟字母（(?![A-Za-z])），防止这种拆分。
   step(
-    new RegExp('\\b(' + EN_TITLE_DOT + ')\\.?\\s*(' + EN_NAME + ')\\b', 'g'),
+    new RegExp('\\b(' + EN_TITLE + ')(?![A-Za-z])\\s+(' + EN_NAME_PART + ')' + EN_NAME_SUFFIX, 'g'),
     'personEn',
-    (m, g1, g2) => M2 + g1 + '. ' + MASK_EN.personEn + M2,
+    function (m, g1, g2, g3, sep, sfx) { return M2 + g1 + ' ' + MASK_EN.personEn + (sfx || '') },
     'en'
   )
-  // e2 完整称谓 + 姓：Professor Wang → Professor Someone
-  //    这是英文最常见的写法，必须有「姓」跟在后面才动手，
-  //    否则 "my professor was not there" 这类会被误伤。
+  // e2 缩写称谓 + 姓：Mr.Liu / Mr.LIU / Mr.Liu Jr. → Mr. Someone
+  //    点号可有可无，空格可有可无（\s* 覆盖多空格）。
+  //    姓用宽松模式 —— 前面有称谓锚点，大小写不该成为漏检的理由。
+  //    称谓后面要求**不紧跟字母**（(?![A-Za-z])）——
+  //    否则 "PROFESSOR WANG" 会被 "PROF" 抢先匹配，把 ESSOR 当成姓。
   step(
-    new RegExp('\\b(' + EN_TITLE + ')\\s+(' + EN_NAME + ')\\b', 'g'),
+    new RegExp('\\b(' + EN_TITLE_DOT + ')(?![A-Za-z])\\.?\\s*(' + EN_NAME_PART + ')' + EN_NAME_SUFFIX, 'g'),
     'personEn',
-    (m, g1, g2) => M2 + g1 + ' ' + MASK_EN.personEn + M2,
+    function (m, g1, g2, g3, sep, sfx) { return M2 + g1 + '. ' + MASK_EN.personEn + (sfx || '') },
     'en'
   )
-  // e3 小写职衔 + 姓：advisor Liu → advisor Someone
+  // e3 小写职衔 + 姓：advisor Liu / advisor LIU → advisor Someone
   //    小写职衔单独成词时容易误伤，这里要求后面跟一个像姓名的首字母大写词
   step(
-    new RegExp('\\b(advisor|supervisor|mentor|tutor)\\s+(' + EN_NAME + ')\\b', 'g'),
+    new RegExp('\\b(' + EN_TITLE_LOWER + ')\\s+(' + EN_NAME_PART + ')' + EN_NAME_SUFFIX, 'g'),
     'personEn',
-    (m, g1, g2) => M2 + g1 + ' ' + MASK_EN.personEn + M2,
+    function (m, g1, g2, g3, sep, sfx) { return M2 + g1 + ' ' + MASK_EN.personEn + (sfx || '') },
     'en'
   )
-  // e4 姓 + 完整称谓：Wang Professor → Someone Professor
+  // e4 姓 + 完整称谓：Wang Professor / WANG Professor → Someone Professor
   //    中式英文或简历写法里会出现，补上。
+  //    姓用严格模式：这一条前面没有称谓锚点，全大写时无法与普通词区分。
   step(
-    new RegExp('\\b(' + EN_NAME + ')\\s+(' + EN_TITLE + ')\\b', 'g'),
+    new RegExp('\\b(' + EN_NAME_STRICT + ')\\s+(' + EN_TITLE + ')\\b', 'g'),
     'personEn',
     (m, g1, g2) => M2 + MASK_EN.personEn + ' ' + g2 + M2,
     'en'
   )
-  // e5 英文机构名：Tsinghua University → ___ University
+  // e5 英文机构名：Tsinghua University / TSINGHUA UNIVERSITY → ___ University
+  //    机构词本身也要能匹配全大写（UNIVERSITY）。
   step(
     new RegExp('\\b(' + EN_ORG_NAME + ')\\s+(' + EN_ORG + ')\\b', 'g'),
     'orgEn',
     (m, g1, g2) => M2 + MASK_EN.orgEn + ' ' + g2 + M2,
     'en'
   )
+  // e6 纯姓形态（上下文锚定）：Liu is my advisor / Liu, my advisor
+  //    没有称谓锚点时，靠「姓 + 关系词」这个句式来识别。
+  //    姓必须用严格模式（首字母大写+小写）——
+  //    否则 "I work at NASA" 这类会被误伤。
+  //
+  //    语序要点：英文的姓通常在句首（Liu is my advisor），
+  //    不是中文那种「我姓李」。所以锚点放在姓后面。
+  step(
+    new RegExp('\\b(' + EN_NAME_STRICT + ')(?![A-Za-z])\\s+(?:is|was|are|were)\\s+(?:my|our|his|her|their)\\b', 'g'),
+    'personEn',
+    function (m, g1) { return M2 + MASK_EN.personEn + M2 },
+    'en'
+  )
+  // e7 关系词 + 姓（另一种语序）：my advisor Liu / her supervisor Wang
+  //    前面已有关系词提供锚点，姓用宽松模式以覆盖全大写。
+  step(
+    new RegExp('\\b(?:my|our|his|her|their)\\s+(' + EN_TITLE_LOWER + ')\\s+(' + EN_NAME_PART + ')', 'g'),
+    'personEn',
+    function (m, g1, g2) { return M2 + g1 + ' ' + MASK_EN.personEn + M2 },
+    'en'
+  )
 
   // 还原「的」，去掉所有标记
   out = out.split(M3).join('的').split(M2).join('').split(M1).join('').split(M4).join('')
+
+  // 清理孤立的闭合括号
+  //
+  // 嵌套括号场景：「星洲大学（自动化学院）」
+  //   p4 先替换「星洲大学」→「某校」，左括号留了下来；
+  //   p5 再替换「自动化学院」→「某学院」，右括号留了下来。
+  //   结果是「某校（某学院」—— 括号不配对，读起来很奇怪。
+  //
+  // 这里扫描一遍，把没有配对左括号的闭合符号去掉。
+  out = removeOrphanClosers(out)
 
   return { content: out, changed: out !== src, hits }
 }
