@@ -28,13 +28,13 @@ const MINI_DIR = path.resolve(__dirname, '..', '..', 'pgrefuge-miniprogram')
  */
 const CASES = [
   // ---------- 应脱敏：学校 ----------
-  { t: '我在中南大学读研，导师让我每周写周报', expect: 'mask' },
+  { t: '我在星洲大学读研，导师让我每周写周报', expect: 'mask' },
   { t: '湖南大学的实验室设备不错', expect: 'mask' },
   { t: '北京邮电大学自动化学院', expect: 'mask' },
   { t: '华中科技大学的新政策', expect: 'mask' },
   { t: '我在湖南大学读研', expect: 'mask' },
   { t: '每天在湖南大学做实验', expect: 'mask' },
-  { t: '每周去中南大学开会', expect: 'mask' },
+  { t: '每周去星洲大学开会', expect: 'mask' },
   { t: '我们学校最近换了新食堂', expect: 'keep', note: '泛称「我们学校」不应被误伤' },
   { t: '一个大学的环境很重要', expect: 'keep', note: '泛称「一个大学」不应被误伤' },
 
