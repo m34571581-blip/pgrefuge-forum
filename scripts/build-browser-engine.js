@@ -14,7 +14,7 @@
  *
  * 为什么不用打包器（webpack/rollup）：
  *   站点是纯静态的，引入构建链会让部署复杂化；
- *   而这里的依赖关系极简（3 个模块、无循环依赖），
+ *   而这里的依赖关系极简（4 个模块、无循环依赖），
  *   30 行代码就能搞定，不需要工具链。
  *
  * 用法：node scripts/build-browser-engine.js
@@ -29,6 +29,7 @@ const SITE_DIR = path.join(HERE, '..', 'site')
 const MODULES = [
   { file: 'name-detector.js', name: 'name-detector' },
   { file: 'identifier-detector.js', name: 'identifier-detector' },
+  { file: 'institution-detector.js', name: 'institution-detector' },
   { file: 'desensitize.js', name: 'desensitize' }
 ]
 

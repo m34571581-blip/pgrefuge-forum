@@ -206,8 +206,79 @@ const NEG_IDENTIFIER = [
   '跑了30公里'
 ]
 
+// K. 【本轮新增】院校简称 —— L1 规则够不着，只能进疑似清单
+//
+//    p4 要求「校名 + 大学/学院」，所以「清华」「哈工大」这类简称
+//    原本是**静默漏检**（既没脱敏，也没告警）。
+//
+//    简称与普通词高度同形，所以只能告警 + 由用户确认，
+//    不能自动替换 —— 这是 L3 层的核心原则。
+//
+//    标注方式：
+//      'alert'  → 应当进疑似清单（引擎该问用户）
+//      'keep'   → 不该进清单，也不能被替换
+const SUSPECT_INSTITUTION = [
+  ['我在清华读研', 'alert', '简称 + 读研语境', '清华'],
+  ['清华的导师很push', 'alert', '简称 + 导师语境', '清华'],
+  ['中科大的老师', 'alert', '三字简称', '中科大'],
+  ['本科在复旦', 'alert', '简称 + 学历语境', '复旦'],
+  ['师兄来自西交', 'alert', '简称 + 来历语境', '西交'],
+  ['北大荒的开发', 'keep', '「北大荒」是地名，不是北大', '北大'],
+  ['重大意义', 'keep', '「重大」是常用词', null],
+  ['上交作业', 'keep', '「上交」是常用词', null],
+  ['武大郎烧饼', 'keep', '「武大郎」是小说人物', '武大'],
+  ['华大基因', 'keep', '「华大」是公司名', null],
+  ['东南方向', 'keep', '「东南」是方位词', null],
+  ['南大街的店', 'keep', '「南大」被误切', '南大'],
+  ['在重大项目中', 'keep', '「重大」是常用词', null]
+]
+
+// L. 【本轮新增】英文裸全名 —— b1~b6 都需要结构锚点，裸全名够不着
+//
+//    「Ming Liu 很烦」这种既无称谓也无关系词，
+//    原本是**静默漏检**。末词必须在姓氏表内，才可能是人名。
+const SUSPECT_EN_NAME = [
+  ['Ming Liu 很烦', 'alert', '裸全名，末词是姓', 'Ming Liu'],
+  ['John Smith 很烦', 'alert', '裸全名', 'John Smith'],
+  ['Wei Wang 很烦', 'alert', '全小写拼音名', 'Wei Wang'],
+  ['i love new york', 'keep', '「York」不是姓', null],
+  ['best wishes', 'keep', '「wishes」不是姓', null],
+  ['hong kong', 'keep', '地名', null],
+  ['the nasa building', 'keep', '「nasa」不是姓', null],
+  ['machine learning', 'keep', '「learning」不是姓', null],
+  ['new year', 'keep', '「year」不是姓', null]
+]
+
+// M. 【本轮新增】用户确认强制脱敏 —— 「一键脱敏」的回灌路径
+//
+//    引擎拿不准 → 告警 → 用户点「一键脱敏」→ 片段回灌引擎 → 强制脱敏。
+//    这是 L3 层的闭环，缺了它「一键脱敏」就落不了地。
+//
+//    标注方式：
+//      text      原文
+//      confirmed 回灌引擎的确认项（text + nth 定位键）
+//      expected  确认后的完整输出
+const CONFIRMED = [
+  ['我讨厌刘晓东', [{ text: '刘晓东', nth: 0 }], '我讨厌某', '中文姓名'],
+  ['我在清华读研', [{ text: '清华', nth: 0 }], '我在某校读研', '院校简称'],
+  ['Ming Liu 很烦', [{ text: 'Ming Liu', nth: 0 }], 'Someone 很烦', '英文姓名'],
+  ['我讨厌刘晓东，刘晓东很烦',
+    [{ text: '刘晓东', nth: 0 }],
+    '我讨厌某，刘晓东很烦',
+    '只脱敏被确认的那一处（第 0 处）'],
+  ['我讨厌刘晓东，刘晓东很烦',
+    [{ text: '刘晓东', nth: 1 }],
+    '我讨厌刘晓东，某很烦',
+    'nth 定位到第 1 处'],
+  ['我在清华读研，清华的食堂很难吃',
+    [{ text: '清华', nth: 0 }],
+    '我在某校读研，清华的食堂很难吃',
+    '同名多处只确认第 0 处']
+]
+
 module.exports = {
   POS_ORG, POS_CN_PERSON, POS_EN_PERSON,
   POS_EN_CASE, POS_CN_BARE, POS_IDENTIFIER,
-  NEG_LOOKS_LIKE_NAME, NEG_GENERIC, NEG_EN, NEG_IDENTIFIER
+  NEG_LOOKS_LIKE_NAME, NEG_GENERIC, NEG_EN, NEG_IDENTIFIER,
+  SUSPECT_INSTITUTION, SUSPECT_EN_NAME, CONFIRMED
 }

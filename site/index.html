@@ -92,6 +92,66 @@
   .hit.warn {
     background: var(--yellow); color: var(--ink); font-weight: 600;
   }
+
+  /* ---- 一键脱敏：可疑片段列表 ---- */
+  /*
+   * 每个片段是一个按钮，点一下就脱敏。
+   * 用户不需要自己想替换规则 —— 引擎会重新跑一遍，
+   * 把确认的片段强制脱敏后返回。
+   */
+  .suspect-panel {
+    margin-top: 12px; padding: 12px 14px;
+    background: var(--card); border: 1px solid var(--line);
+    border-left: 3px solid var(--yellow); border-radius: 8px;
+  }
+  .suspect-head {
+    display: flex; align-items: baseline; gap: 10px;
+    flex-wrap: wrap; margin-bottom: 10px;
+  }
+  .suspect-title { font-size: 13px; font-weight: 600; color: var(--ink); }
+  .suspect-hint { font-size: 12px; color: var(--soft); }
+  .suspect-list { display: flex; gap: 8px; flex-wrap: wrap; }
+  .suspect-chip {
+    font-size: 12px; padding: 4px 11px; border-radius: 12px;
+    background: var(--paper); border: 1px solid var(--yellow);
+    color: var(--ink); cursor: pointer; font-family: inherit;
+    display: inline-flex; align-items: center; gap: 6px;
+    transition: background .15s, border-color .15s;
+  }
+  .suspect-chip:hover { background: var(--yellow); border-color: var(--accent); }
+  .suspect-chip .sus-mark {
+    font-size: 10px; color: var(--soft);
+  }
+  .suspect-chip .sus-kind {
+    font-size: 10px; padding: 1px 5px; border-radius: 8px;
+    background: rgba(0,0,0,.05); color: var(--soft);
+  }
+  /* 已脱敏的片段：显示为完成态，仍可点击撤销 */
+  .suspect-chip.done {
+    background: rgba(181,196,177,.35); border-color: var(--green);
+    color: var(--soft); text-decoration: line-through;
+  }
+  .suspect-chip.done .sus-kind { background: rgba(0,0,0,.05); }
+  .suspect-actions { margin-top: 11px; display: flex; gap: 8px; flex-wrap: wrap; }
+  .btn-mask-all {
+    font-size: 12px; padding: 6px 13px; border-radius: 8px; cursor: pointer;
+    background: var(--ink); color: var(--paper); border: 1px solid var(--ink);
+    font-family: inherit;
+  }
+  .btn-mask-all:hover { opacity: .88; }
+  .btn-mask-reset {
+    font-size: 12px; padding: 6px 13px; border-radius: 8px; cursor: pointer;
+    background: transparent; color: var(--soft); border: 1px solid var(--line);
+    font-family: inherit;
+  }
+  .btn-mask-reset:hover { color: var(--ink); border-color: var(--accent); }
+
+  /* 预览里高亮尚未脱敏的可疑片段 */
+  .preview-text mark {
+    background: rgba(212,197,160,.55); color: var(--ink);
+    border-bottom: 2px solid var(--yellow); border-radius: 2px;
+    padding: 0 1px;
+  }
   .composer-actions {
     margin-top: 14px; display: flex; gap: 10px; flex-wrap: wrap;
   }
@@ -224,6 +284,17 @@
       <div class="preview-label" id="previewLabel">脱敏预览会显示在这里</div>
       <div class="preview-text" id="previewText"></div>
       <div class="hits" id="previewHits"></div>
+      <div class="suspect-panel" id="suspectPanel" hidden>
+        <div class="suspect-head">
+          <span class="suspect-title" id="suspectTitle">疑似未脱敏</span>
+          <span class="suspect-hint" id="suspectHint"></span>
+        </div>
+        <div class="suspect-list" id="suspectList"></div>
+        <div class="suspect-actions" id="suspectActions">
+          <button type="button" class="btn-mask-all" id="maskAllBtn">一键全部脱敏</button>
+          <button type="button" class="btn-mask-reset" id="maskResetBtn">撤销全部</button>
+        </div>
+      </div>
     </div>
     <div class="composer-actions">
       <button type="button" class="btn-copy" id="copyBtn" disabled>复制脱敏结果</button>
@@ -282,6 +353,31 @@
   //   GitHub 上从头到尾没有出现过原文。
   const DES = window.PGDesensitize
 
+  // ---- 一键脱敏：用户已确认的片段 ----
+  //
+  // 引擎对「拿不准」的片段只告警不替换（误伤代价高）。
+  // 用户点一下说「这个确实是敏感信息」之后，
+  // 我们把确认结果**回灌给引擎**重新算一遍 ——
+  // 前端不自己写替换规则，否则脱敏逻辑就有两份，
+  // 浏览器端和论坛同步管道会漂移。
+  //
+  // key 用「文本 + 第几次出现」：同一段文字可能在文中多处出现，
+  // 只有「第几次」能区分是哪一处被点了。
+  const confirmed = new Map()
+
+  function confirmedKey (s) {
+    return s.text + '#' + s.nth
+  }
+
+  function confirmedList () {
+    const out = []
+    confirmed.forEach(function (v, k) {
+      const i = k.lastIndexOf('#')
+      out.push({ text: k.slice(0, i), nth: parseInt(k.slice(i + 1), 10) })
+    })
+    return out
+  }
+
   function renderPreview() {
     const draft = document.getElementById('draft')
     const textEl = document.getElementById('previewText')
@@ -289,6 +385,11 @@
     const hitsEl = document.getElementById('previewHits')
     const copyBtn = document.getElementById('copyBtn')
     const noteEl = document.getElementById('copyNote')
+    const panelEl = document.getElementById('suspectPanel')
+    const listEl = document.getElementById('suspectList')
+    const titleEl = document.getElementById('suspectTitle')
+    const hintEl = document.getElementById('suspectHint')
+    const actionsEl = document.getElementById('suspectActions')
     const raw = draft.value
 
     if (!raw.trim()) {
@@ -296,6 +397,7 @@
       textEl.className = 'preview-text'
       labelEl.textContent = '脱敏预览会显示在这里'
       hitsEl.innerHTML = ''
+      panelEl.hidden = true
       copyBtn.disabled = true
       noteEl.textContent = ''
       noteEl.className = 'composer-note'
@@ -308,8 +410,8 @@
       return
     }
 
-    const r = DES.desensitize(raw)
-    textEl.textContent = r.content
+    // 把用户已确认的片段回灌引擎，重新计算
+    const r = DES.desensitize(raw, { confirmed: confirmedList() })
     textEl.className = 'preview-text' + (r.changed ? ' is-masked' : '')
     labelEl.textContent = r.changed
       ? '以下是发布后其他人看到的内容（已自动脱敏）'
@@ -320,7 +422,7 @@
       .map(function (l) { return '<span class="hit">' + l + '</span>' })
       .join('')
 
-    // ---- L3 兜底告警 ----
+    // ---- L3 兜底告警 + 一键脱敏 ----
     //
     // 引擎对「形态可疑但线索不足」的片段不做自动替换（误伤代价高），
     // 但也绝不静默放过（漏检代价更高）——
@@ -329,34 +431,147 @@
     // 这是整套架构里用户唯一需要操心的部分：
     // 「系统不确定的地方，我告诉你了，你自己看一眼。」
     const sus = r.suspected || []
+    const pending = sus.filter(function (s) { return !confirmed.has(confirmedKey(s)) })
+
     if (sus.length) {
       const names = sus.map(function (s) { return s.text })
       hitsEl.innerHTML += '<span class="hit warn">疑似未脱敏：' +
         names.join('、') + '</span>'
-      labelEl.textContent = r.changed
-        ? '已自动脱敏，但有 ' + names.length + ' 处拿不准，请自行确认'
-        : '有 ' + names.length + ' 处疑似姓名未脱敏，请自行确认'
+    }
+
+    // 高亮尚未脱敏的可疑片段
+    renderHighlighted(textEl, r.content, pending)
+
+    // 渲染可点击的片段列表
+    //
+    // 已确认的片段仍显示（划线 + 变灰），点一下可以撤销 ——
+    // 用户反悔时不必重写整段话。
+    if (sus.length || confirmed.size) {
+      panelEl.hidden = false
+      const KIND_LABEL = { person: '姓名', school: '院校' }
+      const items = sus.map(function (s) {
+        const key = confirmedKey(s)
+        const done = confirmed.has(key)
+        return '<button type="button" class="suspect-chip' + (done ? ' done' : '') +
+          '" data-key="' + esc(key) + '" title="' +
+          (done ? '点击撤销这次脱敏' : '点击即脱敏此处') +
+          '">' +
+          '<span class="sus-mark">' + (done ? '✓' : '⚠') + '</span>' +
+          esc(s.text) +
+          '<span class="sus-kind">' + (KIND_LABEL[s.kind] || '疑似') + '</span>' +
+          '</button>'
+      })
+      // 已确认、但本轮不再出现在疑似清单里的（已被彻底替换）
+      confirmed.forEach(function (v, k) {
+        const i = k.lastIndexOf('#')
+        const txt = k.slice(0, i)
+        if (sus.some(function (s) { return s.text === txt })) return
+        items.push('<button type="button" class="suspect-chip done" data-key="' +
+          esc(k) + '" title="点击撤销这次脱敏">' +
+          '<span class="sus-mark">✓</span>' + esc(txt) +
+          '<span class="sus-kind">已脱敏</span>' +
+          '</button>')
+      })
+      listEl.innerHTML = items.join('')
+
+      const n = pending.length
+      titleEl.textContent = n
+        ? '有 ' + n + ' 处拿不准，点一下即可脱敏'
+        : '已按你的确认脱敏'
+      hintEl.textContent = n
+        ? '引擎不能确定的地方，交给你判断'
+        : (confirmed.size ? '共 ' + confirmed.size + ' 处已确认脱敏' : '')
+      actionsEl.hidden = false
+      document.getElementById('maskAllBtn').hidden = n === 0
+      document.getElementById('maskResetBtn').hidden = confirmed.size === 0
+    } else {
+      panelEl.hidden = true
     }
 
     copyBtn.disabled = false
     noteEl.textContent = r.changed
-      ? '已替换 ' + labels.length + ' 类敏感信息' + (sus.length ? '，另有 ' + sus.length + ' 处需你确认' : '')
-      : (sus.length ? '未自动替换，但发现 ' + sus.length + ' 处疑似敏感内容' : '')
-    noteEl.className = 'composer-note' + (sus.length && !r.changed ? ' warn' : '')
+      ? '已替换 ' + labels.length + ' 类敏感信息' +
+        (pending.length ? '，另有 ' + pending.length + ' 处待你确认' : '') +
+        (confirmed.size ? '（你已确认 ' + confirmed.size + ' 处）' : '')
+      : (pending.length ? '未自动替换，但发现 ' + pending.length + ' 处疑似敏感内容' : '')
+    noteEl.className = 'composer-note' + (pending.length && !r.changed ? ' warn' : '')
+  }
+
+  // 在预览文本里高亮尚未脱敏的可疑片段
+  //
+  // 用 textContent + 手工切分渲染，不用 innerHTML —— 避免 XSS 注入。
+  function renderHighlighted (textEl, text, sus) {
+    if (!sus.length) {
+      textEl.textContent = text
+      return
+    }
+    const marks = sus
+      .map(function (s) { return { start: s.start, end: s.end } })
+      .sort(function (a, b) { return a.start - b.start })
+    const frag = document.createDocumentFragment()
+    let pos = 0
+    for (const m of marks) {
+      if (m.start < pos) continue // 重叠的跳过
+      if (m.start > pos) frag.appendChild(document.createTextNode(text.slice(pos, m.start)))
+      const mk = document.createElement('mark')
+      mk.textContent = text.slice(m.start, m.end)
+      frag.appendChild(mk)
+      pos = m.end
+    }
+    if (pos < text.length) frag.appendChild(document.createTextNode(text.slice(pos)))
+    textEl.textContent = ''
+    textEl.appendChild(frag)
   }
 
   function initComposer() {
     const draft = document.getElementById('draft')
     const copyBtn = document.getElementById('copyBtn')
     const noteEl = document.getElementById('copyNote')
+    const listEl = document.getElementById('suspectList')
+    const maskAllBtn = document.getElementById('maskAllBtn')
+    const maskResetBtn = document.getElementById('maskResetBtn')
     if (!draft) return
 
-    draft.addEventListener('input', renderPreview)
+    draft.addEventListener('input', function () {
+      // 原文改了，之前确认的位置可能已经失效 → 清空确认状态，
+      // 避免把「旧文本的确认」套用到「新文本的同名字段」上。
+      confirmed.clear()
+      renderPreview()
+    })
+
+    // 点某个片段 → 确认脱敏 / 再点一次 → 撤销
+    listEl.addEventListener('click', function (e) {
+      const chip = e.target.closest('.suspect-chip')
+      if (!chip) return
+      const key = chip.getAttribute('data-key')
+      if (confirmed.has(key)) confirmed.delete(key)
+      else confirmed.set(key, true)
+      renderPreview()
+    })
+
+    // 一键全部脱敏：把所有待确认片段一次性确认
+    maskAllBtn.addEventListener('click', function () {
+      const raw = draft.value
+      if (!raw.trim() || !DES) return
+      const r = DES.desensitize(raw, { confirmed: confirmedList() })
+      ;(r.suspected || []).forEach(function (s) {
+        if (!confirmed.has(confirmedKey(s))) confirmed.set(confirmedKey(s), true)
+      })
+      renderPreview()
+    })
+
+    // 撤销全部
+    maskResetBtn.addEventListener('click', function () {
+      confirmed.clear()
+      renderPreview()
+    })
 
     copyBtn.addEventListener('click', function () {
       const raw = draft.value
       if (!raw.trim() || !DES) return
-      const out = DES.desensitize(raw).content
+      // 必须带上 confirmed —— 否则复制出来的是「未确认」的版本，
+      // 用户在预览里点的那些片段就没了。
+      const out = DES.desensitize(raw, { confirmed: confirmedList() }).content
       const done = function () {
         noteEl.textContent = '已复制脱敏后的内容，粘贴到 GitHub 即可'
         noteEl.className = 'composer-note ok'

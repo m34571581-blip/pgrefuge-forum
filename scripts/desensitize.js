@@ -243,6 +243,17 @@ const NAME_DETECT = require('./name-detector')
  */
 const IDENT_DETECT = require('./identifier-detector')
 
+/**
+ * 院校简称识别模块（institution-detector.js）
+ *
+ * 与姓名、标识符分开，因为判别逻辑完全不同：
+ *   姓名 / 标识符 —— 靠形态或格式判定
+ *   院校简称       —— 靠**词典 + 学术语境**判定（简称与普通词高度同形）
+ *
+ * 详见 institution-detector.js 的头部注释。
+ */
+const INSTITUTION_DETECT = require('./institution-detector')
+
 const M1 = String.fromCharCode(1) // 泛称保护
 const M2 = String.fromCharCode(2) // 替换结果包裹
 const M3 = String.fromCharCode(3) // 「的」占位
@@ -548,14 +559,150 @@ function looksLikeEnName (fragment) {
 }
 
 /**
- * 脱敏
- * @param {string} text 原始内容
- * @returns {{content: string, changed: boolean, hits: Array<{kind: string, count: number}>}}
+ * 统计子串在文本中的出现次数（不重叠）
  */
-function desensitize(text) {
+function countOccurrences (text, needle) {
+  if (!needle) return 0
+  let n = 0
+  let idx = text.indexOf(needle)
+  while (idx !== -1) {
+    n++
+    idx = text.indexOf(needle, idx + needle.length)
+  }
+  return n
+}
+
+/**
+ * 求某个片段在文本中是「第几次出现」（从 0 起）
+ *
+ * 用途：给疑似片段一个稳定的定位键。
+ *   同一段文字在文中多处出现时，只有「第几次」能区分是哪一处 ——
+ *   前端点其中一个，回灌给引擎时才能精确命中。
+ *
+ * @param {string} text  全文
+ * @param {string} needle 片段文本
+ * @param {number} start  片段的起始位置
+ */
+function occurrenceIndex (text, needle, start) {
+  if (!needle) return 0
+  let nth = 0
+  let idx = text.indexOf(needle)
+  while (idx !== -1 && idx < start) {
+    nth++
+    idx = text.indexOf(needle, idx + needle.length)
+  }
+  return nth
+}
+
+/**
+ * 求某个片段在文本中第 n 次出现的起始位置（找不到返回 -1）
+ */
+function nthOccurrence (text, needle, n) {
+  if (!needle) return -1
+  let idx = text.indexOf(needle)
+  for (let k = 0; k < n && idx !== -1; k++) {
+    idx = text.indexOf(needle, idx + needle.length)
+  }
+  return idx
+}
+
+/**
+ * 找出英文裸全名候选（无称谓、无关系词的「名 + 姓」）
+ *
+ * 判据与 b5 一致，共享同一张英文姓氏表：
+ *   末词在姓氏表内   → 排除 "New York" / "Hong Kong" / "Best Wishes"
+ *   首词像名           → 排除 "the nasa" / "love new"
+ *   首词不在常见词表   → 排除 "we need ok"
+ *   首词不全大写       → 排除 "NASA IBM" 这类缩写
+ *
+ * @param {string} text
+ * @returns {Array<{start:number, end:number, text:string}>}
+ */
+function findEnNameCandidates (text) {
+  const out = []
+  const re = /([A-Za-z]+)\s+([A-Za-z]+)/g
+  let m
+  while ((m = re.exec(text)) !== null) {
+    const w1 = m[1]
+    const w2 = m[2]
+    if (!isEnSurname(w2)) continue
+    if (EN_COMMON_WORDS.has(w1.toLowerCase())) continue
+    // 全大写缩写（NASA / MIT / OK）不是名
+    if (/^[A-Z]{2,}$/.test(w1)) continue
+    // 首词要像名：首字母大写 + 小写，或全小写（拼音名）
+    const looksGiven = /^[A-Z][a-z]+$/.test(w1) || /^[a-z]{2,}$/.test(w1)
+    if (!looksGiven) continue
+    out.push({ start: m.index, end: m.index + m[0].length, text: m[0] })
+  }
+  return out
+}
+
+/**
+ * 脱敏
+ *
+ * @param {string} text 原始内容
+ * @param {object} [options]
+ * @param {Array<{text: string, kind?: string}>} [options.confirmed]
+ *   用户在预览里点「一键脱敏」后确认的片段。
+ *   引擎会把这些片段**强制脱敏**（不再询问）。
+ *   这是「引擎不自动替换 → 用户确认 → 引擎执行」闭环的回灌接口，
+ *   保证脱敏逻辑仍然只有一份（前端不自己写替换规则）。
+ * @returns {{content: string, changed: boolean, hits: Array<{kind: string, count: number}>, suspected: Array}}
+ */
+function desensitize(text, options) {
   const src = text || ''
   const hits = []
   let out = src
+
+  // 用户已确认的片段 → 强制脱敏
+  //
+  // 为什么要这个回灌接口：
+  //   L3 层的定位是「引擎拿不准 → 交给用户判断」。
+  //   但如果用户判断完，引擎却不能执行，那这个判断就没有意义 ——
+  //   用户只能自己手动改文字，一键脱敏就落不了地。
+  //
+  // 所以确认结果必须**回灌给引擎**，由引擎执行替换。
+  // 前端只负责"收集用户点了哪些"，不自己写脱敏规则 ——
+  // 否则脱敏逻辑就有两份，浏览器和论坛同步管道会漂移。
+  const confirmed = (options && options.confirmed) || []
+
+  // 确认项按「文本 + 第几次出现」索引
+  //
+  // 为什么不能只按文本匹配：
+  //   同一段文字在文中可能多处出现，且只有部分该脱敏
+  //   （"刘晓东骂我" 有线索自动脱敏了，"我讨厌刘晓东" 没有）。
+  //   只按文本匹配会把已经脱敏的地方再算一遍，或把不该动的位置也动掉。
+  //
+  // 所以确认项带上「第 N 次出现」，
+  // 引擎在处理时数着数，只脱敏被确认的那一次。
+  const confirmedMap = new Map()
+  for (const c of confirmed) {
+    const item = typeof c === 'string' ? { text: c } : c
+    if (!item || !item.text) continue
+    const key = item.text
+    const nth = item.nth || 0
+    if (!confirmedMap.has(key)) confirmedMap.set(key, new Set())
+    confirmedMap.get(key).add(nth)
+  }
+
+  // 每个文本已确认的次数计数器（用于取「第 N 次」的 N）
+  const confirmedSeen = new Map()
+
+  /**
+   * 判断某个位置的片段是否被用户确认
+   *
+   * @param {string} fragment 片段文本
+   * @param {number} start 在当前文本中的起始位置
+   * @param {string} haystack 片段所在的文本（用于统计这是第几次出现）
+   */
+  function isConfirmed (fragment, start, haystack) {
+    const set = confirmedMap.get(fragment)
+    if (!set || !set.size) return false
+    return set.has(occurrenceIndex(haystack, fragment, start))
+  }
+
+  // 已按用户确认强制脱敏的片段数
+  let confirmedApplied = 0
 
   // p1 泛称 + 称谓保护
   out = out.replace(new RegExp(GENERIC + TITLES, 'g'), '$1' + M1 + '$2')
@@ -678,18 +825,35 @@ function desensitize(text) {
     for (let i = shapes.length - 1; i >= 0; i--) {
       const sp = shapes[i]
       const cue = NAME_DETECT.findCue(out, sp.start, sp.end)
+      // 用户已确认的片段 → 无条件脱敏（不再等线索）
+      const isConfirmedHit = isConfirmed(sp.text, sp.start, out)
 
-      if (cue) {
-        // 有线索 → 脱敏
+      if (cue || isConfirmedHit) {
+        // 有线索 或 用户已确认 → 脱敏
         out = out.slice(0, sp.start) + M2 + MASK_CN.person + M2 + out.slice(sp.end)
         cnCount++
+        if (isConfirmedHit && !cue) confirmedApplied++
       } else if (sp.shape === 'strict' || sp.shape === 'single') {
         // 无线索但形态强 → 记为疑似，交给前端告警
-        suspected.push({ text: sp.text, kind: 'person', lang: 'cn' })
+        suspected.push({
+          text: sp.text,
+          kind: 'person',
+          lang: 'cn',
+          start: sp.start,
+          end: sp.end,
+          nth: occurrenceIndex(out, sp.text, sp.start)
+        })
       } else if (sp.uncertain) {
         // 切分位置可疑（前面是虚词）→ 也告警。
         // 宁可多提醒一次，也不要静默漏掉一个真名。
-        suspected.push({ text: sp.text, kind: 'person', lang: 'cn' })
+        suspected.push({
+          text: sp.text,
+          kind: 'person',
+          lang: 'cn',
+          start: sp.start,
+          end: sp.end,
+          nth: occurrenceIndex(out, sp.text, sp.start)
+        })
       }
     }
     if (cnCount > 0) hits.push({ kind: 'personCn', count: cnCount, lang: 'cn' })
@@ -865,6 +1029,70 @@ function desensitize(text) {
     }
   }
 
+  // ---- L2d：英文姓名（无称谓、无关系词的裸全名） ----
+  //
+  // b1~b6 都需要结构锚点（称谓/关系词/后接动词），
+  // 所以「Ming Liu 很烦」这种**裸全名**完全够不着 —— 静默漏检。
+  //
+  // 判据（与 b5 同源，共享姓氏表）：
+  //   末词必须是常见姓氏     → 排除 "New York" / "Hong Kong"
+  //   首词必须像名           → 排除 "the nasa"
+  //   不在常见词表里         → 排除 "love new"
+  //
+  // 和中文层一样：**只告警，不自动替换**。
+  // 「Ming Liu」到底是不是人名，引擎说了不算，用户说了算。
+  {
+    const enSus = findEnNameCandidates(out)
+    // 从后往前替换 —— 正向替换会让后面的候选位置漂移
+    for (let i = enSus.length - 1; i >= 0; i--) {
+      const cand = enSus[i]
+      if (isConfirmed(cand.text, cand.start, out)) {
+        // 用户已确认 → 强制脱敏
+        out = out.slice(0, cand.start) + M2 + MASK_EN.personEn + M2 + out.slice(cand.end)
+        confirmedApplied++
+        hits.push({ kind: 'personEn', count: 1, lang: 'en' })
+      } else {
+        suspected.push({
+          text: cand.text,
+          kind: 'person',
+          lang: 'en',
+          start: cand.start,
+          end: cand.end,
+          nth: occurrenceIndex(out, cand.text, cand.start)
+        })
+      }
+    }
+  }
+
+  // ---- L2e：院校简称 ----
+  //
+  // L1 的机构词规则要求「校名 + 大学/学院」这类带后缀的形式，
+  // 所以「清华」「哈工大」这类简称够不着 —— 同样是静默漏检。
+  //
+  // 简称与普通词高度同形（重大/东南/上交…），
+  // 所以不进 L1 自动替换，只进疑似清单（详见 institution-detector.js）。
+  {
+    const abbrs = INSTITUTION_DETECT.findInstitutionAbbr(out)
+    for (let i = abbrs.length - 1; i >= 0; i--) {
+      const ab = abbrs[i]
+      if (isConfirmed(ab.text, ab.start, out)) {
+        // 用户已确认 → 强制脱敏
+        out = out.slice(0, ab.start) + M2 + MASK_CN.school + M2 + out.slice(ab.end)
+        confirmedApplied++
+        hits.push({ kind: 'school', count: 1, lang: 'cn' })
+      } else {
+        suspected.push({
+          text: ab.text,
+          kind: 'school',
+          lang: 'cn',
+          start: ab.start,
+          end: ab.end,
+          nth: occurrenceIndex(out, ab.text, ab.start)
+        })
+      }
+    }
+  }
+
   // 还原「的」，去掉所有标记
   out = out.split(M3).join('的').split(M2).join('').split(M1).join('').split(M4).join('')
 
@@ -878,6 +1106,44 @@ function desensitize(text) {
   // 这里扫描一遍，把没有配对左括号的闭合符号去掉。
   out = removeOrphanClosers(out)
 
+  // 重算疑似片段的位置
+  //
+  // 为什么必须重算：
+  //   L2a 里记下的 start/end 是**中间态**（含 M1~M4 标记、且尚未被后续规则替换）的坐标。
+  //   之后的 L2b/L2c/L2d 会不断替换文本，位置必然漂移；
+  //   最后又把标记剥掉，长度也变了。
+  //   所以最终位置必须在**成品文本**上重新定位。
+  //
+  // 注意 nth **不重算**：
+  //   nth 是「该文本在全文中的第几次出现」，检测时算一次就定了。
+  //   它是前端回灌 confirmed 时的定位键 ——
+  //   若在成品上重算，编号基准会从「含标记的中间态」变成「剥掉标记的成品」，
+  //   与引擎判定 isConfirmed 时用的基准不一致 → 回灌会命中错的位置。
+  //
+  //   已被用户确认并脱敏的片段会消失 → 搜不到 → 从疑似清单里移除
+  //   （前端据此把「已脱敏」和「待确认」区分开）。
+  const finalSuspected = []
+  for (const s of suspected) {
+    // 定位该片段在成品中的**第 s.nth 次出现**
+    //
+    // 不能直接用 indexOf —— 那只会找到首次出现的位置。
+    // 同名片段有多处时，start 必须指向真正的那一处，
+    // 否则前端高亮会指错地方。
+    const idx = nthOccurrence(out, s.text, s.nth || 0)
+    if (idx === -1) continue // 已被脱敏 → 不再是疑似
+    finalSuspected.push({
+      text: s.text,
+      kind: s.kind,
+      lang: s.lang,
+      start: idx,
+      end: idx + s.text.length,
+      // 第几次出现 —— 前端回灌 confirmed 时带上它，引擎才能精确定位到这一处
+      nth: s.nth || 0,
+      // 出现次数 —— 前端用来显示「N 处」
+      count: countOccurrences(out, s.text)
+    })
+  }
+
   return {
     content: out,
     changed: out !== src,
@@ -885,7 +1151,10 @@ function desensitize(text) {
     // suspected：形态可疑但缺少上下文线索、无法自动判定的片段。
     // 前端应把它们显示成「可能有 N 处姓名未脱敏」，让用户自己确认。
     // 这是「不静默失败」的关键 —— 引擎不知道就说不知道。
-    suspected: suspected
+    suspected: finalSuspected,
+    // confirmedApplied：本次因用户确认而被强制脱敏的片段数。
+    // 前端用它告诉用户「已按你的确认脱敏了 N 处」。
+    confirmedApplied: confirmedApplied
   }
 }
 

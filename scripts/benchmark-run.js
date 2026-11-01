@@ -57,6 +57,70 @@ allFails = allFails.concat(runGroup('负·泛称与固定搭配', B.NEG_GENERIC,
 allFails = allFails.concat(runGroup('负·英文普通词', B.NEG_EN, false))
 allFails = allFails.concat(runGroup('负·普通数字', B.NEG_IDENTIFIER, false))
 
+// ---- 疑似清单：应告警 / 不应告警 ----
+//
+// 与「脱敏与否」是两种不同的判据：
+//   脱敏测试看的是 content 有没有变；
+//   这里看的是**该不该进疑似清单**（即该不该问用户）。
+// 简称和英文裸全名都只能告警，不能自动脱敏 —— 误伤代价太高。
+function runSuspectGroup (name, cases) {
+  let pass = 0
+  const fails = []
+  for (const item of cases) {
+    const [text, expect, note, fragment] = item
+    const r = desensitize(text)
+    // 判定：指定片段是否出现在疑似清单中
+    const hit = fragment
+      ? r.suspected.some((s) => s.text === fragment)
+      : r.suspected.length > 0
+    const ok = (expect === 'alert') === hit
+    if (ok) pass++
+    else fails.push({
+      text,
+      note,
+      out: r.content,
+      sus: r.suspected.map((s) => s.text)
+    })
+  }
+  const total = cases.length
+  const rate = ((pass / total) * 100).toFixed(1)
+  console.log(
+    (pass === total ? '✓' : '✗') + ' ' + name.padEnd(26) +
+    ' ' + String(pass).padStart(3) + '/' + total +
+    '  (' + rate + '%)'
+  )
+  return fails
+}
+
+// ---- 用户确认强制脱敏 ----
+//
+// 校验「一键脱敏」的完整闭环：
+//   引擎告警 → 用户确认 → 片段回灌 → 引擎强制脱敏
+function runConfirmedGroup (name, cases) {
+  let pass = 0
+  const fails = []
+  for (const item of cases) {
+    const [text, confirmed, expected, note] = item
+    const r = desensitize(text, { confirmed })
+    const ok = r.content === expected
+    if (ok) pass++
+    else fails.push({ text, note, out: r.content, expected })
+  }
+  const total = cases.length
+  const rate = ((pass / total) * 100).toFixed(1)
+  console.log(
+    (pass === total ? '✓' : '✗') + ' ' + name.padEnd(26) +
+    ' ' + String(pass).padStart(3) + '/' + total +
+    '  (' + rate + '%)'
+  )
+  return fails
+}
+
+console.log()
+allFails = allFails.concat(runSuspectGroup('疑似·院校简称', B.SUSPECT_INSTITUTION))
+allFails = allFails.concat(runSuspectGroup('疑似·英文裸全名', B.SUSPECT_EN_NAME))
+allFails = allFails.concat(runConfirmedGroup('确认·强制脱敏回灌', B.CONFIRMED))
+
 console.log()
 console.log('-'.repeat(74))
 
