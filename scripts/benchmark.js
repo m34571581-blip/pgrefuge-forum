@@ -1,0 +1,213 @@
+/**
+ * 敏感信息识别基准集（Ground Truth）
+ *
+ * 这是整个脱敏引擎的**唯一真源**：
+ *   scripts/desensitize.js  —— 引擎实现
+ *   scripts/eval.js         —— 跑这个基准集
+ *   scripts/build-name-dict.py —— 从语料生成姓名词典
+ *
+ * 设计原则（三条，缺一不可）：
+ *
+ * 1. **负样本比正样本更重要**
+ *    脱敏系统的失败模式不对称：
+ *      漏检（真名没脱敏） → 隐私泄露，严重
+ *      误伤（普通词被脱敏） → 句子读着别扭，用户会自己看出来
+ *    所以负样本（不该动的普通词）必须比正样本更多，
+ *    否则引擎会为了召回而滥伤，把产品做废。
+ *
+ * 2. **每个负样本都是一次「差点犯的错」**
+ *    不是随手造的，而是从真实语料的误判清单里挑出来的。
+ *    数据来源见 build-name-dict.py 的注释。
+ *
+ * 3. **标注要含「为什么」**
+ *    note 字段写清判据，方便后来者判断这条能不能删。
+ */
+
+// ---- 正样本：必须被脱敏 ----
+
+// A. 原有：机构词类
+const POS_ORG = [
+  '我在星洲大学读研',
+  '湖南大学的实验室设备不错',
+  '北京邮电大学自动化学院',
+  '我在湖南大学读研',
+  '每天在湖南大学做实验',
+  '每周去星洲大学开会',
+  '浙大工学院',
+  '我在星洲大学土木工程学院',
+  '我们在结构力学实验室通宵做实验'
+]
+
+// B. 原有：中文「姓X」与「姓名+称谓」
+const POS_CN_PERSON = [
+  '我姓李，他总是叫我马上去他的办公室',
+  '李老师很凶',
+  '欧阳教授训我',
+  '陳教授很嚴厲',
+  '李（老师）很凶',
+  '李[老师]很凶',
+  '李 老师很凶',
+  '星洲大学（自动化学院）',
+  '王小明教授很凶'
+]
+
+// C. 原有：英文（大小写 / 后缀 / 连字符 / 语序）
+const POS_EN_PERSON = [
+  'i was doing my job, and Mr.Liu just called me to go to his office',
+  'Professor Wang is very strict with us.',
+  'Dr. Smith helped me.',
+  'Prof. Zhang told me to stay late.',
+  'Ms. Chen gave advice.',
+  'I am from Tsinghua University now.',
+  'my advisor Liu gave me advice.',
+  'Mr.LIU called me',
+  'PROFESSOR WANG is strict',
+  'MY ADVISOR LIU is strict',
+  'TSINGHUA UNIVERSITY',
+  'Mr. Liu Jr. called me',
+  'Mr. Smith-Jones called me',
+  'Liu is my advisor',
+  '我们组的 Liu Professor 很强',
+  '我在 Tsinghua University 读研，导师姓李'
+]
+
+// D. 【本轮新增】英文姓名的「大小写变体」—— 用户反馈的核心痛点
+//    关键洞察：只要有称谓锚点，姓可以是任意大小写。
+//    因为上下文已经提供了足够强的信号，大小写不该成为漏检的理由。
+const POS_EN_CASE = [
+  ['Mr.liu called me', '姓全小写 + 缩写称谓'],
+  ['mr. liu called me', '称谓全小写 + 姓全小写'],
+  ['MR.LIU called me', '全大写'],
+  ['Mr.Liu called me', '姓首字母大写'],
+  ['mR.lIU called me', '混合大小写'],
+  ['Prof.liu told me to stay', 'Prof. + 全小写姓'],
+  ['Dr.liu helped me', 'Dr. + 全小写姓'],
+  ['professor liu is strict', '全小写完整称谓'],
+  ['PROFESSOR liu is strict', '全大写称谓 + 小写姓'],
+  ['liu is my advisor', '全小写纯姓形态'],
+  ['Liu is my advisor', '纯姓形态'],
+  ['LIU is my advisor', '全大写纯姓形态'],
+  ['my advisor liu', '全小写 + 职衔'],
+  ['my advisor LIU', '全大写 + 职衔'],
+  ['Ming Liu is my advisor', '全名无职称（名+姓）'],
+  ['Ming Liu called me', '全名无职称 + 动作'],
+  ['ming liu is my advisor', '全名全小写']
+]
+
+// E. 【本轮新增】中文姓名无职称 —— 靠「姓氏词典 + 名字用字 + 上下文」
+//    这类在形态上与普通词高度相似（如「任务」「任何」），
+//    所以必须依赖上下文线索，不能只靠形态。
+const POS_CN_BARE = [
+  ['我是王小明，研二', '自称 + 姓名'],
+  ['他叫刘洋，人很坏', '「他叫 + 姓名」'],
+  ['王小明让我很痛苦', '姓名 + 动作动词'],
+  ['王强说要扣我工资', '姓名 + 说'],
+  ['张三是我的导师', '姓名 + 关系词'],
+  ['李明辉是我的师兄', '姓名 + 的 + 关系词'],
+  ['骂王小明的人真是有病', '动词在前 + 姓名'],
+  ['批评刘洋的邮件', '动词在前 + 姓名'],
+  ['针对王强的实验数据造假', '针对 + 姓名'],
+  ['催我的是赵磊', '主语 + 是 + 姓名'],
+  ['折磨我的是陈静', '主语 + 是 + 姓名'],
+  ['王小明让我去他办公室', '姓名 + 让我'],
+  ['刘洋说我不配毕业', '姓名 + 说'],
+  ['导师是欧阳修远', '关系词 + 是 + 姓名']
+]
+
+// ---- 负样本：绝不能被脱敏 ----
+
+// F. 【本轮新增】从真实语料误判清单里挑出来的普通词
+//    这些是「姓 + 名字用字」形态，但其实是普通词 —— 引擎最容易在这里翻车。
+const NEG_LOOKS_LIKE_NAME = [
+  '任务', '任何', '任命', '何礼', '余部', '余座', '夏代', '夏季',
+  '唐代', '唐初', '宋朝', '宋代', '尹力', '崔杏', '卢山', '卢曼',
+  '叶城', '叶林', '何塞', '余米', '余艘', '任制', '任嚣',
+  '这周的任务很多', '任何人都能做', '他被任命为主任', '余下的时间不多',
+  '何塞的进球很漂亮', '卢梭的著作很有名', '宋代的绘画很强',
+  '叶城这个地方不错', '余座的人都到齐了'
+]
+
+// G. 原有负样本：泛称与固定搭配
+const NEG_GENERIC = [
+  '我们学校最近换了新食堂',
+  '一个大学的环境很重要',
+  '今天学院有活动',
+  '他们学院的规定很严',
+  '隔壁学院的同学说',
+  '附近学院的老师很好',
+  '那位老师很和善',
+  '其他老师也这么说过',
+  '这位老师是我的导师',
+  '我的导师姓名的规律',
+  '他的导师很严格',
+  '被批评的时候要接受',
+  '我们组的老师说可以',
+  '我们实验室的设备不错',
+  '这个实验室很大',
+  '我们的实验室在五楼',
+  '在实验室待到十点',
+  '每天在实验室做实验',
+  '每周去实验室开会',
+  '我在研究生院读研'
+]
+
+// H. 原有负样本：英文
+const NEG_EN = [
+  'the teacher told me to stay late',
+  'I went to the office and my professor was not there.',
+  'I love New York and MIT is famous.',
+  'I work at NASA and IBM.',
+  'He said OK to me.',
+  'the NASA building',
+  'I am from MIT',
+  'I am a Professor of Physics',
+  'I applied to university last year.',
+  'We need OK Liu to sign this',
+  'Other teachers said so'
+]
+
+// I. 【本轮新增】标识符类 —— 姓名之外的、同样能定位到个人的信息
+//
+//    这类信息的判别逻辑与姓名完全不同：
+//      姓名   —— 形态不可判定，靠上下文
+//      标识符 —— 格式高度规整，靠「关键词 + 格式」双重约束
+//    所以必须分成独立模块（identifier-detector.js），不能塞进姓名规则里。
+const POS_IDENTIFIER = [
+  ['学号 2022310108', '学号'],
+  ['工号是 20230001', '工号'],
+  ['我的学号 2022310108', '学号 + 8~12 位数字'],
+  ['手机 13800138000', '手机号（无分隔）'],
+  ['电话 138-0013-8000', '手机号（带横线）'],
+  ['联系方式 13800138000', '联系方式提示词'],
+  ['邮箱 zhangsan@example.edu.cn', '邮箱'],
+  ['发到 li.si@xxx.edu.cn', '发到 + 邮箱'],
+  ['QQ 123456789', 'QQ 号'],
+  ['微信 zhangsan_1999', '微信号'],
+  ['工位在科研楼 5-317', '楼-房号'],
+  ['房间 402', '纯房号']
+]
+
+// J. 标识符负样本：普通数字绝不能被当成标识符
+//
+//    这是标识符识别最大的风险 —— 数字在学术文本里太常见了。
+//    规则必须要求提示词，否则「2024年」「120分」全都会被误伤。
+const NEG_IDENTIFIER = [
+  '2024年是重要的一年',
+  '我考了120分',
+  '第3章讲得很清楚',
+  '这篇论文有5000字',
+  '他在5楼上课',
+  '我们班有30人',
+  '项目预算100万',
+  '实验重复了3次',
+  '11月有考试',
+  '2021年我本科毕业',
+  '一共12个人参加了会议',
+  '跑了30公里'
+]
+
+module.exports = {
+  POS_ORG, POS_CN_PERSON, POS_EN_PERSON,
+  POS_EN_CASE, POS_CN_BARE, POS_IDENTIFIER,
+  NEG_LOOKS_LIKE_NAME, NEG_GENERIC, NEG_EN, NEG_IDENTIFIER
+}

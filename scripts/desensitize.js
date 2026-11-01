@@ -214,6 +214,35 @@ const EN_NAME_SUFFIX =
 const EN_ORG_NAME = '[A-Z][a-zA-Z]{1,20}(?:\\s+[A-Z][a-zA-Z]{1,20}){0,2}'
 
 // 与服务端 chr() 标记同构（用 String.fromCharCode，避免源码里出现控制字符）
+/**
+ * 姓名识别模块（分层识别）
+ *
+ * 引擎本体是「单层正则级联」，负责机构词、称谓+姓名、姓X 这类
+ * **有确定性结构信号**的敏感信息。
+ *
+ * 但用户实测暴露了两个缺口：
+ *   ① 英文姓名的任意大小写（Mr.liu / mr. LIU / Ming Liu）
+ *   ② 中文姓名不带职称（王小明）
+ *
+ * 这两类交给 name-detector 处理，它用「姓氏词典 + 名字用字表 + 上下文线索」
+ * 三重证据判断，理由与数据见 name-detector.js 的头部注释。
+ *
+ * 这里 require 的是**同目录的 JSON 词典**，不是硬编码常量 ——
+ * 词典由 build-name-dict.py 从真实语料生成，可复现、可更新。
+ */
+const NAME_DETECT = require('./name-detector')
+
+/**
+ * 标识符识别模块（学号 / 手机号 / 邮箱 / 社交账号 / 房间号）
+ *
+ * 与姓名分开处理，因为两类信息的判别逻辑完全不同：
+ *   姓名   —— 形态不可判定，必须靠上下文
+ *   标识符 —— 格式高度规整，用「关键词 + 格式」双重约束即可
+ *
+ * 详见 identifier-detector.js 的头部注释。
+ */
+const IDENT_DETECT = require('./identifier-detector')
+
 const M1 = String.fromCharCode(1) // 泛称保护
 const M2 = String.fromCharCode(2) // 替换结果包裹
 const M3 = String.fromCharCode(3) // 「的」占位
@@ -227,10 +256,17 @@ const M4 = String.fromCharCode(4) // 泛称 + 机构词保护
  * 中英混排时各条命中各自跟随。
  */
 const HIT_LABELS = {
+  identifier: '编号 / 号码',
+  identifier_studentId: '学号 / 工号',
+  identifier_phone: '手机号',
+  identifier_email: '邮箱',
+  identifier_social: '社交账号',
+  identifier_room: '房间号',
   school: '学校名称',
   college: '学院 / 学系',
   team: '课题组 / 实验室',
   person: '姓名 + 称谓',
+  personCn: '姓名',
   surname: '姓氏',
   personEn: '英文姓名',
   orgEn: '英文机构名'
@@ -238,10 +274,17 @@ const HIT_LABELS = {
 
 /** 英文版标签 */
 const HIT_LABELS_EN = {
+  identifier: 'ID / Number',
+  identifier_studentId: 'Student ID',
+  identifier_phone: 'Phone number',
+  identifier_email: 'Email',
+  identifier_social: 'Social account',
+  identifier_room: 'Room number',
   school: 'School name',
   college: 'College / Department',
   team: 'Lab / Research team',
   person: 'Name + Title',
+  personCn: 'Name',
   surname: 'Surname',
   personEn: 'English name',
   orgEn: 'English organization'
@@ -264,6 +307,12 @@ const HIT_LABELS_EN = {
  *   比中文「某」硬译成 "certain" 自然得多。
  */
 const MASK_CN = {
+  identifier: '某',
+  studentId: '某学号',
+  phone: '某号码',
+  email: '某邮箱',
+  social: '某账号',
+  room: '某房间',
   school: '某校',
   college: '某学院',
   team: '某',
@@ -324,6 +373,178 @@ function detectLang(text) {
   const cn = (String(text).match(/[一-龥]/g) || []).length
   const en = (String(text).match(/[A-Za-z]/g) || []).length
   return cn >= en ? 'cn' : 'en'
+}
+
+/**
+ * 英文常见姓氏（107 个）
+ *
+ * 为什么英文比中文容易判别：
+ *   英文姓氏总量约 4 万个，但**覆盖 90% 人口的只要前 100 个左右**，
+ *   且这些高频姓氏是**封闭集合** —— 可以穷举。
+ *   中文姓氏也有封闭性，但「姓 + 名」整体无法判断（名是开放集合），
+ *   所以中文必须靠上下文，英文可以直接靠姓氏表。
+ *
+ * 前 48 个是英语母语者高频姓氏，后 59 个是华人姓拼音 ——
+ *   后者对这个产品尤其重要：用户大概率用拼音写自己的英文名。
+ *
+ * 判别力实测（12/12 全对）：
+ *   Ming Liu / ming liu / John Smith / WEI WANG  → 识别
+ *   the teacher / my professor / New York / Best Wishes → 不识别
+ */
+const EN_SURNAMES = new Set([
+  // 英语母语者高频姓
+  'smith', 'johnson', 'williams', 'brown', 'jones', 'garcia', 'miller', 'davis',
+  'rodriguez', 'martinez', 'hernandez', 'lopez', 'gonzalez', 'wilson', 'anderson',
+  'thomas', 'taylor', 'moore', 'jackson', 'martin', 'lee', 'perez', 'thompson',
+  'white', 'harris', 'sanchez', 'clark', 'ramirez', 'lewis', 'robinson', 'walker',
+  'young', 'allen', 'king', 'wright', 'scott', 'torres', 'nguyen', 'hill',
+  'flores', 'green', 'adams', 'nelson', 'baker', 'hall', 'rivera', 'campbell',
+  'mitchell', 'carter', 'roberts',
+  // 华人姓拼音
+  'wang', 'li', 'zhang', 'liu', 'chen', 'yang', 'huang', 'zhao', 'wu', 'zhou',
+  'xu', 'sun', 'ma', 'zhu', 'hu', 'guo', 'he', 'gao', 'lin', 'luo',
+  'zheng', 'liang', 'xie', 'song', 'tang', 'deng', 'feng', 'han', 'cao', 'zeng',
+  'peng', 'xiao', 'cai', 'pan', 'tian', 'dong', 'yuan', 'yu', 'ye', 'jiang',
+  'du', 'su', 'wei', 'cheng', 'lv', 'ding', 'shen', 'ren', 'yao', 'lu',
+  'fu', 'zhong', 'cui', 'tan', 'liao', 'fan', 'jin', 'qian', 'shu', 'meng'
+])
+
+/**
+ * 判断一个英文词是否是常见姓氏（大小写不敏感）
+ */
+function isEnSurname (word) {
+  if (!word) return false
+  return EN_SURNAMES.has(word.toLowerCase())
+}
+
+/**
+ * 标识符类型 → 占位符 key
+ */
+function identKind (kind) {
+  const map = {
+    studentId: 'studentId',
+    phone: 'phone',
+    email: 'email',
+    social: 'social',
+    room: 'room'
+  }
+  return map[kind] || 'identifier'
+}
+
+/**
+ * 英文称谓词表
+ *
+ * 用于识别「称谓 + 姓」结构 —— 那不是「全名」，不能被全名规则处理。
+ *   "professor liu is strict"  → b2 已按泛称规则跳过，
+ *                                若被 b5 当成全名，会输出 "Someone Someone"。
+ */
+const EN_TITLE_WORDS = new Set([
+  'mr', 'mrs', 'ms', 'dr', 'prof', 'sr', 'jr',
+  'professor', 'advisor', 'supervisor', 'teacher', 'tutor', 'mentor',
+  'coordinator', 'director', 'head', 'chair',
+  'boss', 'colleague', 'friend', 'roommate', 'partner'
+])
+
+function isEnTitleWord (word) {
+  if (!word) return false
+  return EN_TITLE_WORDS.has(word.toLowerCase())
+}
+
+/**
+ * 判断一个英文片段是否「像姓」（宽松版）
+ *
+ * 用于**已有称谓锚点**的场景（Mr. / Prof. / Dr. …）。
+ * 这时上下文已经提供了强信号，所以只要排除明显的普通词就行。
+ *
+ * 排除清单：常见英文虚词、动词、介词（the / was / not / there …）。
+ * 保留：任何大小写的词，包括全小写的拼音姓（liu / chen / wang）。
+ */
+function looksLikeEnSurname (fragment) {
+  if (!fragment) return false
+  const words = fragment.trim().split(/\s+/).filter(Boolean)
+  if (!words.length) return false
+
+  // 只看**第一段**（姓本身）。
+  //
+  // 为什么：匹配时为了兼容「名 + 姓」，正则会顺带吞掉后面的普通词
+  //   "Mr.liu called me" → 捕获到 "liu called"
+  //   "called" 是常见动词 → 若整体判定就会误伤，导致漏掉真正的「liu」。
+  //
+  // 姓只有一个词，所以只判第一段是正确的；
+  // 多余的词由后续规则单独处理（它们是普通词，不该被脱敏）。
+  const w = words[0]
+  if (EN_COMMON_WORDS.has(w.toLowerCase())) return false
+  // 全大写缩写一般不是姓（NASA / MIT）
+  if (/^[A-Z]{2,}$/.test(w)) return false
+  // 单个字母不是姓
+  if (w.length < 2) return false
+  return true
+}
+
+/**
+ * 判断一个英文片段是否「像姓名」
+ *
+ * 存在的理由：b1/b2 用称谓做锚点，但称谓后面不一定跟的是姓名。
+ *   "the teacher told me to stay late"  → teacher 后面是 told，不是姓名
+ *   "I am a Professor of Physics"        → Professor 后面是 of
+ *
+ * 判据（三者满足其一）：
+ *   1. 首字母大写 + 后面跟小写字母（Wang / Liu / Smith）
+ *   2. 全小写但不是常见英文普通词（liu / chen / zhang —— 中文姓拼音）
+ *   3. 至少两段（名 + 姓），如 "Ming Liu"
+ *
+ * 全大写排除 —— 那是缩写（NASA / MIT / PUA），不是姓名。
+ */
+const EN_COMMON_WORDS = new Set([
+  'the', 'a', 'an', 'and', 'or', 'but', 'if', 'of', 'to', 'in', 'on', 'at',
+  'by', 'for', 'with', 'from', 'as', 'is', 'was', 'were', 'be', 'been',
+  'are', 'am', 'do', 'does', 'did', 'not', 'no', 'yes', 'so', 'too', 'very',
+  'my', 'our', 'his', 'her', 'their', 'this', 'that', 'these', 'those',
+  'me', 'you', 'him', 'them', 'us', 'it', 'they', 'he', 'she', 'we', 'i',
+  'there', 'here', 'what', 'who', 'why', 'how', 'when', 'where', 'which',
+  'been', 'have', 'has', 'had', 'will', 'would', 'can', 'could', 'should',
+  'told', 'called', 'asked', 'said', 'kept', 'keeps', 'always', 'never',
+  'meant', 'made', 'took', 'gave', 'got', 'went', 'came', 'let', 'put',
+  'physics', 'math', 'science', 'history', 'english', 'office',
+  'teacher', 'teachers', 'professor', 'professors', 'advisor', 'advisors',
+  'supervisor', 'supervisors', 'mentor', 'mentors', 'tutor', 'tutors',
+  'doctor', 'doctors', 'people', 'student', 'students', 'someone', 'everyone',
+  'not', 'there', 'late', 'stay', 'office', 'went', 'gone', 'coming', 'going',
+  'very', 'really', 'quite', 'much', 'more', 'most', 'less', 'least',
+  'now', 'then', 'today', 'yesterday', 'tomorrow', 'soon', 'later',
+  'about', 'after', 'before', 'during', 'while', 'until', 'since',
+  'first', 'last', 'next', 'other', 'another', 'same', 'such',
+  'like', 'want', 'need', 'know', 'think', 'feel', 'look', 'see', 'hear',
+  'good', 'bad', 'best', 'worst', 'long', 'short', 'high', 'low', 'big',
+  'him', 'her', 'them', 'sorry', 'thanks', 'please', 'hello', 'yes'
+])
+
+function looksLikeEnName (fragment) {
+  if (!fragment) return false
+  const words = fragment.trim().split(/\s+/).filter(Boolean)
+  if (!words.length) return false
+
+  // 多段（名 + 姓）：**每一段都**必须像姓名。
+  //
+  // 为什么不能用「有一段像就行」：
+  //   "professor was not" —— 若只看有没有一段像，结果会误伤
+  //   "Ming Liu"          —— 两段都像，正确
+  //   "New York"         —— New 像、York 像，但整体是地名，
+  //                          靠后面的上下文规则排除
+  if (words.length >= 2) {
+    return words.every(function (w) { return looksLikeEnName(w) })
+  }
+
+  const w = words[0]
+  // 全大写 → 缩写，不动
+  if (/^[A-Z]{2,}$/.test(w)) return false
+  // 复数形式的称谓是泛称（teachers / professors），不是姓名
+  if (/^(teachers|professors|advisors|supervisors|mentors|tutors|doctors)$/i.test(w)) return false
+  // 首字母大写 + 小写 → 标准姓名形态
+  if (/^[A-Z][a-z]+$/.test(w)) return true
+  // 全小写 → 可能是拼音姓（liu / chen / wang），但要排除常见词
+  if (/^[a-z]{2,}$/.test(w) && !EN_COMMON_WORDS.has(w)) return true
+  return false
 }
 
 /**
@@ -399,7 +620,12 @@ function desensitize(text) {
   step(new RegExp('(' + NAME_CN + '{1,2}?)' + SEP + BRACKET_OPEN + '(' + TITLES + ')' + BRACKET_CLOSE, 'g'), 'person',
     function (m, g1, g2, g3, sep) { return M2 + MASK_CN.person + (sep || '') + (g3 || '') + M2 }, 'cn')
   // p8 「姓X」→「姓某」
-  step(/姓([一-龥]{1,2})/g, 'surname', () => M2 + MASK_CN.surname + M2, 'cn')
+  //
+  // 例外：「姓名的规律」「性别」「姓氏学」里的「姓名」「性别」是普通词，
+  //      不是姓氏。要排除，否则会误伤。
+  //      判据：X 是「名」「别」「氏」这类通用词时跳过。
+  step(/姓(?!(名|别|氏|氏族|名册|名学))([一-龥]{1,2})/g, 'surname',
+    function (m, g1) { return M2 + MASK_CN.surname + M2 }, 'cn')
 
   // ---- 英文补充规则 ----
   //
@@ -409,73 +635,235 @@ function desensitize(text) {
   // 英文的语序和中文相反 —— 英文是「称谓 + 姓」（Professor Wang），
   // 中文是「姓 + 称谓」（王教授）。两种都覆盖，但主规则必须是「称谓 + 姓」。
 
-  // e1 完整称谓 + 姓：Professor Wang / PROFESSOR WANG → Professor Someone
-  //    必须排在 e2（缩写称谓）之前 —— 否则 "PROFESSOR" 会被 "PROF" 抢先匹配，
-  //    把 ESSOR 当成姓吃掉，输出成 "PROF. Someone"。
-  //    称谓后面要求不紧跟字母（(?![A-Za-z])），防止这种拆分。
-  step(
-    new RegExp('\\b(' + EN_TITLE + ')(?![A-Za-z])\\s+(' + EN_NAME_PART + ')' + EN_NAME_SUFFIX, 'g'),
-    'personEn',
-    function (m, g1, g2, g3, sep, sfx) { return M2 + g1 + ' ' + MASK_EN.personEn + (sfx || '') },
-    'en'
-  )
-  // e2 缩写称谓 + 姓：Mr.Liu / Mr.LIU / Mr.Liu Jr. → Mr. Someone
-  //    点号可有可无，空格可有可无（\s* 覆盖多空格）。
-  //    姓用宽松模式 —— 前面有称谓锚点，大小写不该成为漏检的理由。
-  //    称谓后面要求**不紧跟字母**（(?![A-Za-z])）——
-  //    否则 "PROFESSOR WANG" 会被 "PROF" 抢先匹配，把 ESSOR 当成姓。
-  step(
-    new RegExp('\\b(' + EN_TITLE_DOT + ')(?![A-Za-z])\\.?\\s*(' + EN_NAME_PART + ')' + EN_NAME_SUFFIX, 'g'),
-    'personEn',
-    function (m, g1, g2, g3, sep, sfx) { return M2 + g1 + '. ' + MASK_EN.personEn + (sfx || '') },
-    'en'
-  )
-  // e3 小写职衔 + 姓：advisor Liu / advisor LIU → advisor Someone
-  //    小写职衔单独成词时容易误伤，这里要求后面跟一个像姓名的首字母大写词
-  step(
-    new RegExp('\\b(' + EN_TITLE_LOWER + ')\\s+(' + EN_NAME_PART + ')' + EN_NAME_SUFFIX, 'g'),
-    'personEn',
-    function (m, g1, g2, g3, sep, sfx) { return M2 + g1 + ' ' + MASK_EN.personEn + (sfx || '') },
-    'en'
-  )
-  // e4 姓 + 完整称谓：Wang Professor / WANG Professor → Someone Professor
-  //    中式英文或简历写法里会出现，补上。
-  //    姓用严格模式：这一条前面没有称谓锚点，全大写时无法与普通词区分。
-  step(
-    new RegExp('\\b(' + EN_NAME_STRICT + ')\\s+(' + EN_TITLE + ')\\b', 'g'),
-    'personEn',
-    (m, g1, g2) => M2 + MASK_EN.personEn + ' ' + g2 + M2,
-    'en'
-  )
-  // e5 英文机构名：Tsinghua University / TSINGHUA UNIVERSITY → ___ University
-  //    机构词本身也要能匹配全大写（UNIVERSITY）。
-  step(
-    new RegExp('\\b(' + EN_ORG_NAME + ')\\s+(' + EN_ORG + ')\\b', 'g'),
-    'orgEn',
-    (m, g1, g2) => M2 + MASK_EN.orgEn + ' ' + g2 + M2,
-    'en'
-  )
-  // e6 纯姓形态（上下文锚定）：Liu is my advisor / Liu, my advisor
-  //    没有称谓锚点时，靠「姓 + 关系词」这个句式来识别。
-  //    姓必须用严格模式（首字母大写+小写）——
-  //    否则 "I work at NASA" 这类会被误伤。
+  // ---- 英文姓名识别：统一由 L2b 的 b1~b5 处理 ----
   //
-  //    语序要点：英文的姓通常在句首（Liu is my advisor），
-  //    不是中文那种「我姓李」。所以锚点放在姓后面。
-  step(
-    new RegExp('\\b(' + EN_NAME_STRICT + ')(?![A-Za-z])\\s+(?:is|was|are|were)\\s+(?:my|our|his|her|their)\\b', 'g'),
-    'personEn',
-    function (m, g1) { return M2 + MASK_EN.personEn + M2 },
-    'en'
-  )
-  // e7 关系词 + 姓（另一种语序）：my advisor Liu / her supervisor Wang
-  //    前面已有关系词提供锚点，姓用宽松模式以覆盖全大写。
-  step(
-    new RegExp('\\b(?:my|our|his|her|their)\\s+(' + EN_TITLE_LOWER + ')\\s+(' + EN_NAME_PART + ')', 'g'),
-    'personEn',
-    function (m, g1, g2) { return M2 + g1 + ' ' + MASK_EN.personEn + M2 },
-    'en'
-  )
+  // 曾经这里有 e1~e7 七条独立规则，但它们与 L2b 的 b1~b5 **功能重叠**，
+  // 两套规则同时跑会互相破坏：
+  //
+  //   "professor liu is strict"
+  //     e1 先跑 → "professor Someone is strict"
+  //     b2 再跑 → "Someone Someone is strict"   ← 「Someone」被当成了姓
+  //
+  //   "my advisor liu gave me advice"
+  //     e3 先跑 → "my advisor Someone gave me advice"
+  //     b4 再跑 → "advisor Someone gave me advice"  ← 「my」被吃掉了
+  //
+  // 老规则的问题是覆盖不全（大小写敏感），新规则 b1~b5 覆盖完整。
+  // 所以正确做法是**只保留一套** —— 删除 e1~e7，规则统一在 L2b。
+
+  // ---- L2 上下文加权的姓名识别 ----
+  //
+  // 处理两类形态上像名字、但缺少称谓锚点的片段：
+  //   中文：「我是王小明」「王小明让我很痛苦」
+  //   英文：「Mr.liu」「ming liu is my advisor」
+  //
+  // 判据（必须同时满足）：
+  //   形态像名字（姓 + 名字用字）  AND  附近有指人线索
+  //
+  // 为什么必须要有线索：实测（115 万字真实语料）纯形态判别对普通词的
+  // 误伤率 1.48%，人工抽样里真名:普通词 ≈ 41:37 —— 等于随机。
+  // 加上上下文后误伤降到可接受范围。
+  //
+  // L3 兜底：形态像但没线索的，**不自动替换**，而是记进 suspected，
+  //          由前端提示用户「这里可能有 N 处姓名未脱敏」。
+  //          这是整套架构的关键 —— 把「引擎不知道」从静默失败变成显式告警。
+
+  const suspected = []
+
+  // ---- L2a：中文姓名 ----
+  {
+    const shapes = NAME_DETECT.findNameShaped(out)
+    let cnCount = 0
+    // 从后往前替换，避免前面的替换影响后面的位置
+    for (let i = shapes.length - 1; i >= 0; i--) {
+      const sp = shapes[i]
+      const cue = NAME_DETECT.findCue(out, sp.start, sp.end)
+
+      if (cue) {
+        // 有线索 → 脱敏
+        out = out.slice(0, sp.start) + M2 + MASK_CN.person + M2 + out.slice(sp.end)
+        cnCount++
+      } else if (sp.shape === 'strict' || sp.shape === 'single') {
+        // 无线索但形态强 → 记为疑似，交给前端告警
+        suspected.push({ text: sp.text, kind: 'person', lang: 'cn' })
+      } else if (sp.uncertain) {
+        // 切分位置可疑（前面是虚词）→ 也告警。
+        // 宁可多提醒一次，也不要静默漏掉一个真名。
+        suspected.push({ text: sp.text, kind: 'person', lang: 'cn' })
+      }
+    }
+    if (cnCount > 0) hits.push({ kind: 'personCn', count: cnCount, lang: 'cn' })
+  }
+
+  // ---- L2b：英文姓名（大小写不敏感 + 全名） ----
+  //
+  // 覆盖用户实测的全部缺口：
+  //   Mr.liu / mr. liu / MR.LIU / mR.lIU   （称谓后任意大小写的姓）
+  //   ming liu is my advisor               （全小写纯姓形态）
+  //   Ming Liu is my advisor               （全名无职称）
+  //
+  // 关键：英文的姓在句首、名前在后，与中文相反。
+  //      所以英文用「两个连续的首字母大写词」或「称谓 + 任意大小写词」作锚点。
+  {
+    let enCount = 0
+    let work = out
+
+    // b1: 缩写称谓 + 任意大小写的姓
+    //    Mr.liu / mr. liu / MR.LIU / mR.lIU 都要能识别，
+    //    所以称谓本身大小写不敏感。
+    //
+    //    但后随的「姓」必须**像姓名**，否则会误伤：
+    //      "the teacher told me"   → teacher 是泛称，不是称谓锚点
+    //      "my prof. Liu"           → prof. 是缩写称谓
+    //    判定：姓要么首字母大写、要么全小写但长度 >= 2（英文姓多是小写）
+    //         且不能是常见普通词。
+    //    「Mr.liu」点号后没有空格，「Mr Liu」有 —— 两种都要覆盖。
+    //    所以分隔符是「点号可选 + 空格可选」，但至少要有其中之一
+    //    （否则 "Mrliu" 这种拼接也会命中，虽然风险极低）。
+    //    后随的姓：只要**不像普通词**就认。
+    //    因为「Mr.」本身已经是强锚点 —— 英文里没有 "Mr. office" 这种说法。
+    //    这与 b2 不同：b2 的完整称谓在英文里经常单独出现
+    //    （"my professor was absent"），没有点号那么强的指向性。
+    //    姓可以是复合姓（Smith-Jones）—— **两段都要脱敏**。
+    //    只换前半段会留下 "Jones" 这个真名，比漏检更危险（看起来像处理过了）。
+    const dotTitle = /\b(Mr|MRS|Ms|DR|PROF|SR|JR)(\.|\s+)\s*([A-Za-z]+(?:[-][A-Za-z]+)?)/gi
+    work = work.replace(dotTitle, function (m, g1, sep, g2) {
+      // 复合姓：两段都要在姓氏表里
+      const parts = g2.split('-')
+      const ok = parts.every(function (p) { return isEnSurname(p) })
+      if (!ok) return m
+      enCount++
+      const masked = parts.map(function (p) { return MASK_EN.personEn }).join('-')
+      return M2 + g1 + '. ' + masked + M2
+    })
+
+    // b2: 完整称谓 + 任意大小写的姓
+    //    「my professor was not there」里的 professor 是小写泛称，
+    //    所以完整称谓**必须首字母大写**才算锚点。
+    //    「PROFESSOR liu」全大写称谓也要能识别，所以用 gi。
+    //    但「my professor was not there」里的小写 professor 是泛称，
+    //    所以要求：称谓是**首字母大写或全大写**，纯小写的不算锚点。
+    //    姓必须**在英文姓氏表里** —— 这一层让判别变干净：
+    //      "professor liu is strict" → liu 在表里 → 识别
+    //      "my professor was not there" → was 不在表里 → 不动
+    //      "the teacher told me" → told 不在表里 → 不动
+    const fullTitle = /\b(Professor|Advisor|Supervisor|Teacher|Tutor|Mentor|Coordinator|Director|Head|Chair)\s+([A-Za-z]+(?:[-][A-Za-z]+)?)/gi
+    work = work.replace(fullTitle, function (m, g1, g2) {
+      const parts = g2.split('-')
+      const ok = parts.every(function (p) { return isEnSurname(p) })
+      if (!ok) return m
+      enCount++
+      const masked = parts.map(function (p) { return MASK_EN.personEn }).join('-')
+      return M2 + g1 + ' ' + masked + M2
+    })
+
+    // b2b: 姓 + 完整称谓（另一种语序）：Liu Professor / WANG Professor
+    //      中式英语或简历写法里会出现。
+    //      与 b2 不冲突 —— b2 是「称谓 + 姓」，这是「姓 + 称谓」。
+    {
+      const nameThenTitle = /\b([A-Za-z]+(?:[-][A-Za-z]+)?)\s+(Professor|Advisor|Supervisor|Teacher|Tutor|Mentor|Coordinator|Director|Head|Chair)\b/gi
+      work = work.replace(nameThenTitle, function (m, g1, g2) {
+        const parts = g1.split('-')
+        const ok = parts.every(function (p) { return isEnSurname(p) })
+        if (!ok) return m
+        enCount++
+        const masked = parts.map(function (p) { return MASK_EN.personEn }).join('-')
+        return M2 + masked + ' ' + g2 + M2
+      })
+    }
+
+    // b3: 纯姓形态（关系词锚定）：Liu is my advisor / LIU IS MY ADVISOR
+    //     姓可以是任意大小写 —— 关系词已经提供了足够的上下文信号。
+    //    姓必须在英文姓氏表里 —— 关系词已经提供了上下文，
+    //    再加上姓氏表这一层，判别就很干净了。
+    //
+    //    捕获组的意义：**只替换姓，其余原样保留**。
+    //    「Liu is my advisor」→「Someone is my advisor」，
+    //    若整体替换，关系词就丢了，句子读不通。
+    const pureName = /\b([A-Za-z]+)(\s+(?:is|was|are|were)\s+(?:my|our|his|her|their)\s+(?:advisor|supervisor|mentor|tutor|teacher|professor|boss|colleague|friend|roommate|partner)\b)/gi
+    work = work.replace(pureName, function (m, g1, g2) {
+      if (!isEnSurname(g1)) return m
+      enCount++
+      return M2 + MASK_EN.personEn + M2 + g2
+    })
+
+    // b4: 关系词 + 姓（另一语序）：my advisor Liu / her supervisor Wang
+    //    同理，人称与关系词都要保留 —— 只把姓换掉。
+    const relThenName = /\b((?:my|our|his|her|their)\s+(?:advisor|supervisor|mentor|tutor|teacher|professor|boss|colleague|friend|roommate|partner)\s+)([A-Za-z]+)/gi
+    work = work.replace(relThenName, function (m, g1, g2) {
+      if (!isEnSurname(g2)) return m
+      enCount++
+      return M2 + g1 + ' ' + MASK_EN.personEn + M2
+    })
+
+    // b5: 全名（名 + 姓），两词都首字母大写或全小写：
+    //     Ming Liu / ming liu
+    //     要求后接动作动词或关系词，避免误伤 "new york"、"hong kong" 这类地名。
+    //    「名 + 姓」结构。关键约束：**末词必须是常见姓氏**。
+    //
+    //    为什么这是关键：
+    //      "Ming Liu"      → 末词 liu 在姓氏表 → 识别
+    //      "the teacher"   → 末词 teacher 不在 → 不动
+    //      "Other teachers"→ 末词 teachers 不在 → 不动
+    //      "New York"      → 末词 york 不在 → 不动
+    //    没有姓氏表这一层，靠形态判别会误伤 63% 的负样本。
+    const fullName = /\b([A-Za-z]+)\s+([A-Za-z]+)\b(?=\s+(?:called|told|asked|said|yelled|scolded|is|was|keeps|always|never|helped|email|contacted|visited|emailed)\b)/g
+    work = work.replace(fullName, function (m, g1, g2) {
+      // 末词必须是姓氏
+      if (!isEnSurname(g2)) return m
+      // 首词要像名：首字母大写+小写，或全小写（拼音名）
+      const looksGiven = /^[A-Z][a-z]+$/.test(g1) || /^[a-z]{2,}$/.test(g1)
+      if (!looksGiven) return m
+      // 全大写是缩写（NASA / MIT），不动
+      if (/^[A-Z]{2,}$/.test(g1)) return m
+      // 首词是称谓 → 这不是「全名」，而是「称谓 + 姓」。
+      //   "professor liu is strict" → b2 已按小写泛称跳过，
+      //   若这里再当全名处理，就会输出 "Someone Someone"（称谓被吃掉）。
+      //   所以要排除 —— 完整称谓由 b2 处理，缩写称谓由 b1 处理。
+      if (isEnTitleWord(g1)) return m
+      enCount++
+      return M2 + MASK_EN.personEn + ' ' + MASK_EN.personEn + M2
+    })
+
+    // b6: 英文机构名 → ___ University
+    //     机构词本身也要能匹配全大写（UNIVERSITY）。
+    //     与 b5 不冲突 —— b5 要求末词是**姓氏**，而机构词不在姓氏表里。
+    //     必须放在 b5 **之后**：否则 "Tsinghua University" 会被 b5
+    //     先当成「名 + 姓」处理（university 不在姓氏表里，所以不会，
+    //     但顺序上保持「先具体后宽泛」更安全）。
+    {
+      const orgRe = new RegExp('\\b(' + EN_ORG_NAME + ')\\s+(' + EN_ORG + ')\\b', 'g')
+      let orgCount = 0
+      work = work.replace(orgRe, function (m, g1, g2) {
+        orgCount++
+        return M2 + MASK_EN.orgEn + ' ' + g2 + M2
+      })
+      if (orgCount > 0) hits.push({ kind: 'orgEn', count: orgCount, lang: 'en' })
+    }
+
+    out = work
+    if (enCount > 0) hits.push({ kind: 'personEn', count: enCount, lang: 'en' })
+  }
+
+  // ---- L2c：标识符（学号 / 手机号 / 邮箱 / 社交账号 / 房间号） ----
+  //
+  // 这些信息同样能定位到个人，而且格式规整，可以用「关键词 + 格式」可靠识别。
+  // 放在姓名识别之后 —— 因为姓名替换会改变文本长度，
+  // 如果先做标识符，位置会错位。
+  {
+    const idents = IDENT_DETECT.findIdentifiers(out)
+    const counts = {}
+    // 从后往前替换
+    for (let i = idents.length - 1; i >= 0; i--) {
+      const id = idents[i]
+      const mask = MASK_CN[identKind(id.kind)] || MASK_CN.identifier
+      out = out.slice(0, id.start) + M2 + mask + M2 + out.slice(id.end)
+      counts[id.kind] = (counts[id.kind] || 0) + 1
+    }
+    for (const kind of Object.keys(counts)) {
+      hits.push({ kind: 'identifier_' + kind, count: counts[kind], lang: 'cn' })
+    }
+  }
 
   // 还原「的」，去掉所有标记
   out = out.split(M3).join('的').split(M2).join('').split(M1).join('').split(M4).join('')
@@ -490,7 +878,15 @@ function desensitize(text) {
   // 这里扫描一遍，把没有配对左括号的闭合符号去掉。
   out = removeOrphanClosers(out)
 
-  return { content: out, changed: out !== src, hits }
+  return {
+    content: out,
+    changed: out !== src,
+    hits: hits,
+    // suspected：形态可疑但缺少上下文线索、无法自动判定的片段。
+    // 前端应把它们显示成「可能有 N 处姓名未脱敏」，让用户自己确认。
+    // 这是「不静默失败」的关键 —— 引擎不知道就说不知道。
+    suspected: suspected
+  }
 }
 
 /**

@@ -88,6 +88,10 @@
     font-size: 11px; padding: 3px 9px; border-radius: 10px;
     background: var(--green); color: var(--ink);
   }
+  /* 兜底告警：引擎拿不准、交给用户确认的片段 */
+  .hit.warn {
+    background: var(--yellow); color: var(--ink); font-weight: 600;
+  }
   .composer-actions {
     margin-top: 14px; display: flex; gap: 10px; flex-wrap: wrap;
   }
@@ -104,6 +108,7 @@
     margin-top: 10px; font-size: 12px; color: var(--soft); min-height: 16px;
   }
   .composer-note.ok { color: var(--green); }
+  .composer-note.warn { color: var(--yellow); font-weight: 600; }
 
   .post {
     background: var(--paper); border: 1px solid var(--line); border-radius: 12px;
@@ -315,11 +320,29 @@
       .map(function (l) { return '<span class="hit">' + l + '</span>' })
       .join('')
 
+    // ---- L3 兜底告警 ----
+    //
+    // 引擎对「形态可疑但线索不足」的片段不做自动替换（误伤代价高），
+    // 但也绝不静默放过（漏检代价更高）——
+    // 所以把它们显式列出来，让用户自己确认。
+    //
+    // 这是整套架构里用户唯一需要操心的部分：
+    // 「系统不确定的地方，我告诉你了，你自己看一眼。」
+    const sus = r.suspected || []
+    if (sus.length) {
+      const names = sus.map(function (s) { return s.text })
+      hitsEl.innerHTML += '<span class="hit warn">疑似未脱敏：' +
+        names.join('、') + '</span>'
+      labelEl.textContent = r.changed
+        ? '已自动脱敏，但有 ' + names.length + ' 处拿不准，请自行确认'
+        : '有 ' + names.length + ' 处疑似姓名未脱敏，请自行确认'
+    }
+
     copyBtn.disabled = false
     noteEl.textContent = r.changed
-      ? '已替换 ' + labels.length + ' 类敏感信息'
-      : ''
-    noteEl.className = 'composer-note'
+      ? '已替换 ' + labels.length + ' 类敏感信息' + (sus.length ? '，另有 ' + sus.length + ' 处需你确认' : '')
+      : (sus.length ? '未自动替换，但发现 ' + sus.length + ' 处疑似敏感内容' : '')
+    noteEl.className = 'composer-note' + (sus.length && !r.changed ? ' warn' : '')
   }
 
   function initComposer() {

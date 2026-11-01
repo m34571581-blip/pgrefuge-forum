@@ -432,15 +432,25 @@ async function main() {
     'utf8'
   )
 
-  // 把脱敏引擎拷到 site/ —— 供页面里的「发帖前预览」在浏览器本地跑。
+  // 生成浏览器版脱敏引擎到 site/ —— 供页面里的「发帖前预览」在浏览器本地跑。
   //
-  // 为什么要拷贝而不是写死一份：
+  // 为什么要自动生成而不是写死一份：
   // 预览用的规则必须和服务端跑的规则是同一份，否则会出现
   // 「预览显示已脱敏、实际发帖带真名」这种致命的不一致。
-  // 由脚本自动拷贝，从机制上杜绝漂移。
+  // 由脚本自动打包，从机制上杜绝漂移。
+  //
+  // 现在引擎是多个 CommonJS 模块（desensitize / name-detector /
+  // identifier-detector / name-dict.json），浏览器没有 require，
+  // 所以要先用 build-browser-engine.js 打包成单文件再落盘。
   const engineSrc = path.join(__dirname, 'desensitize.js')
   const engineDst = path.join(SITE_DIR, 'desensitize.js')
-  fs.writeFileSync(engineDst, fs.readFileSync(engineSrc, 'utf8'), 'utf8')
+  {
+    const { execFileSync } = require('child_process')
+    execFileSync(process.execPath, [path.join(__dirname, 'build-browser-engine.js')], {
+      cwd: path.join(__dirname, '..'),
+      stdio: 'pipe'
+    })
+  }
 
   console.log('\n已生成:')
   console.log('  data/posts.json   ', fs.statSync(path.join(DATA_DIR, 'posts.json')).size, 'bytes')
