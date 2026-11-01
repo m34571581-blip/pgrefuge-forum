@@ -92,7 +92,18 @@ const CASES = [
   { t: 'I went to the office and my professor was not there.', expect: 'keep', note: '普通 professor 不应被误伤' },
   { t: 'I love New York and MIT is famous.', expect: 'keep', note: '地名与缩写机构不应被误伤' },
   { t: 'I work at NASA and IBM.', expect: 'keep', note: '全大写缩写不应被误伤' },
-  { t: 'I applied to university last year.', expect: 'keep', note: '小写 university 不应被误伤' }
+  { t: 'I applied to university last year.', expect: 'keep', note: '小写 university 不应被误伤' },
+
+  // ---------- 双语占位符 ----------
+  // 英文内容必须得到英文占位符：Mr.Liu → Mr. Someone（而不是「Mr.某」）。
+  // 占位符的语言跟随「被脱敏内容」的语言，不是整篇文本的语言 ——
+  // 所以中英混排时英文机构给 ___、中文姓氏给「姓某」，各自自然。
+  { t: 'i was doing my job, and Mr.Liu just called me to go to his office', expect: 'mask', note: '英文缩写称谓 → Mr. Someone' },
+  { t: 'Professor Wang is very strict with us.', expect: 'mask', note: '英文完整称谓 → Professor Someone' },
+  { t: 'I am from Tsinghua University now.', expect: 'mask', note: '英文机构名 → ___ University' },
+  { t: 'my advisor Liu gave me advice.', expect: 'mask', note: '英文小写职衔 → advisor Someone' },
+  { t: '我们组的 Liu Professor 很强', expect: 'mask', note: '中式英文 → Someone Professor' },
+  { t: '我在 Tsinghua University 读研，导师姓李', expect: 'mask', note: '中英混排：英文机构 + 中文姓氏各自跟随' },
 ]
 
 function main() {
