@@ -1,35 +1,16 @@
 {
   "stats": {
-    "totalPosts": 1,
+    "totalPosts": 0,
     "totalComments": 0,
-    "uniqueAuthors": 1,
-    "taggedCounts": {
-      "压榨": 1
-    },
-    "strategyCounts": {
-      "reduce": 1
-    },
+    "uniqueAuthors": 0,
+    "taggedCounts": {},
+    "strategyCounts": {},
     "withSensitiveHits": 0,
-    "firstPostAt": "2026-10-31T13:38:25Z",
-    "lastPostAt": "2026-10-31T13:38:25Z",
-    "generatedAt": "2026-10-31T13:51:38.436Z",
+    "firstPostAt": null,
+    "lastPostAt": null,
+    "generatedAt": "2026-11-01T03:40:49.658Z",
     "categorySlug": "experiences",
     "categoryName": "experiences"
   },
-  "posts": [
-    {
-      "id": "D_kwDOVd4RIs4Aqs8J",
-      "number": 1,
-      "title": "老师每次叫我都是让我立刻去办公室",
-      "content": "test",
-      "tag": "压榨",
-      "strategy": "reduce",
-      "alias": "晚风",
-      "createdAt": "2026-10-31T13:38:25Z",
-      "url": "https://github.com/m34571581-blip/pgrefuge-forum/discussions/1",
-      "hitLabels": [],
-      "commentCount": 0,
-      "comments": []
-    }
-  ]
+  "posts": []
 }
