@@ -244,6 +244,18 @@ const NAME_DETECT = require('./name-detector')
 const IDENT_DETECT = require('./identifier-detector')
 
 /**
+ * 拼音姓名识别模块（pinyin-detector.js）
+ *
+ * 与姓名、标识符分开，因为判别逻辑完全不同：
+ *   姓名 / 标识符 —— 靠形态或格式判定
+ *   院校简称       —— 靠**词典 + 学术语境**判定
+ *   拼音姓名       —— 靠**音节切分 + 姓氏锚点 + 英文词排除**判定
+ *
+ * 详见 pinyin-detector.js 的头部注释。
+ */
+const PINYIN_DETECT = require('./pinyin-detector')
+
+/**
  * 院校简称识别模块（institution-detector.js）
  *
  * 与姓名、标识符分开，因为判别逻辑完全不同：
@@ -556,6 +568,68 @@ function looksLikeEnName (fragment) {
   // 全小写 → 可能是拼音姓（liu / chen / wang），但要排除常见词
   if (/^[a-z]{2,}$/.test(w) && !EN_COMMON_WORDS.has(w)) return true
   return false
+}
+
+/**
+ * 英文「指人线索」词表
+ *
+ * 用途：给拼音姓名判定真假名。
+ *
+ * 为什么中文层有线索表、英文层原来没有：
+ *   中文裸姓名「王小明」和普通词「这周」形态上无法区分，
+ *   所以必须靠上下文线索。英文「Ming Liu」有姓氏表兜底，
+ *   判别力够强，所以 b1~b5 直接用结构锚点。
+ *   但拼音姓名「wangjunkai」是**连写**的，
+ *   姓氏表帮不上忙（它不是「名 + 姓」结构），
+ *   所以需要像中文层一样，用上下文线索来加权。
+ *
+ * 三类线索：
+ *   动作类：hate / blame / annoy / criticize …  → 后面在说人
+ *   关系类：my roommate / his advisor / our supervisor … → 明确指人
+ *   自称类：I am / my name is / call me … → 说话人在报名字
+ */
+const EN_CUE_WORDS = [
+  // 动作类（对人的行为）
+  'hate', 'hated', 'hates', 'love', 'loved', 'blame', 'blamed', 'annoy',
+  'annoyed', 'criticize', 'criticized', 'curse', 'cursed', 'thank',
+  'thanked', 'congratulate', 'congratulated', 'praise', 'miss',
+  'missed', 'call', 'called', 'email', 'emailed', 'contact', 'contacted',
+  'visit', 'visited', 'ask', 'asked', 'tell', 'told', 'remind', 'reminded',
+  'warn', 'warned', 'admire', 'respect', 'fear', 'dislike', 'argue',
+  'fight', 'scold', 'scolded', 'praise', 'trust', 'avoid', 'follow',
+  'bother', 'bothered', 'help', 'helped', 'meet', 'met', 'know', 'knew',
+  'report', 'reported', 'complain', 'complained', 'ignore', 'ignored',
+  // 关系类
+  'roommate', 'advisor', 'supervisor', 'mentor', 'tutor', 'colleague',
+  'classmate', 'teammate', 'neighbor', 'neighbour', 'boss', 'partner',
+  'boyfriend', 'girlfriend', 'friend', 'teacher', 'professor', 'student',
+  'senior', 'junior', 'classmate', 'labmate', 'schoolmate',
+  // 自称类
+  'name', 'myself'
+]
+
+/**
+ * 判断一个片段附近是否有「英文指人线索」
+ *
+ * 与中文层的 findCue 同构：看片段前后各若干个字符，命中即认为在指人。
+ *
+ * @param {string} text 全文
+ * @param {number} start 片段起始
+ * @param {number} end 片段结束
+ * @param {number} [window] 前后各看多少字符
+ * @returns {string|null} 命中的线索词；没有则 null
+ */
+function findEnCue (text, start, end, window) {
+  const w = window || 24
+  const before = ' ' + text.slice(Math.max(0, start - w), start).toLowerCase() + ' '
+  const after = ' ' + text.slice(end, Math.min(text.length, end + w)).toLowerCase() + ' '
+
+  for (const c of EN_CUE_WORDS) {
+    // 词边界匹配，避免 "like" 命中 "likely"、"class" 命中 "classmate" 之外的干扰
+    const re = new RegExp('(^|[^a-z])' + c.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '([^a-z]|$)')
+    if (re.test(before) || re.test(after)) return c
+  }
+  return null
 }
 
 /**
@@ -1088,6 +1162,51 @@ function desensitize(text, options) {
           start: ab.start,
           end: ab.end,
           nth: occurrenceIndex(out, ab.text, ab.start)
+        })
+      }
+    }
+  }
+
+  // ---- L2f：拼音姓名（连写 / 姓在前）----
+  //
+  // b1~b6 与 L2d 都要求「空格分隔的名 + 姓」结构，
+  // 而中文人名写成拼音时最常见的形态恰恰是**连写**：
+  //   "i hate wangjunkai"    ← 用户实测的漏检案例
+  //   "wang jun kai" / "Wang Junkai"  ← 姓在前
+  //
+  // 这些形态对 b1~b6 完全不可见 —— 是静默漏检，不是误判。
+  //
+  // 形态判定交给 pinyin-detector（音节切分 + 姓氏锚点 + 英文词排除），
+  // 真假名交给英文指人线索加权 —— 与中文层同构：
+  //
+  //   有线索（如 "i hate wangjunkai"）→ 自动脱敏
+  //   无线索（孤零零一个 "wangjunkai"）→ 进疑似清单，交给用户确认
+  //
+  // 为什么无线索时不自动脱敏：
+  //   连写拼音与英文普通词形态同形，虽然音节判据已把误伤压到
+  //   9884 常用词 0 误伤，但连写形态本身仍是「弱信号」。
+  //   而用户显式点名「拼音全称要脱敏」，说明这类内容对他很重要 ——
+  //   所以宁可多提醒一次，也不要静默放过。
+  {
+    const pyNames = PINYIN_DETECT.findPinyinNames(out)
+    for (let i = pyNames.length - 1; i >= 0; i--) {
+      const cand = pyNames[i]
+      const cue = findEnCue(out, cand.start, cand.end)
+      const isConfirmedHit = isConfirmed(cand.text, cand.start, out)
+
+      if (cue || isConfirmedHit) {
+        // 有指人线索，或用户已确认 → 脱敏
+        out = out.slice(0, cand.start) + M2 + MASK_EN.personEn + M2 + out.slice(cand.end)
+        hits.push({ kind: 'personEn', count: 1, lang: 'en' })
+        if (isConfirmedHit && !cue) confirmedApplied++
+      } else {
+        suspected.push({
+          text: cand.text,
+          kind: 'person',
+          lang: 'en',
+          start: cand.start,
+          end: cand.end,
+          nth: occurrenceIndex(out, cand.text, cand.start)
         })
       }
     }

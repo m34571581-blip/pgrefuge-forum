@@ -39,6 +39,31 @@ function runGroup (name, cases, expectMask) {
   return fails
 }
 
+function runExactGroup (name, cases) {
+  // 用例格式：[输入, 期望完整输出, 备注]
+  //
+  // 与 runGroup 的区别：runGroup 只检查「有没有被脱敏」，
+  // 这里检查**逐字输出** —— 拼音姓名场景下，
+  // 「脱敏了但只脱了一半」也算失败（会留下姓氏）。
+  let pass = 0
+  const fails = []
+  for (const item of cases) {
+    const [text, expected, note] = item
+    const r = desensitize(text)
+    const ok = r.content === expected
+    if (ok) pass++
+    else fails.push({ text, note, out: r.content, expected })
+  }
+  const total = cases.length
+  const rate = ((pass / total) * 100).toFixed(1)
+  console.log(
+    (pass === total ? '✓' : '✗') + ' ' + name.padEnd(26) +
+    ' ' + String(pass).padStart(3) + '/' + total +
+    '  (' + rate + '%)'
+  )
+  return fails
+}
+
 console.log('='.repeat(74))
 console.log('脱敏引擎基准评测')
 console.log('='.repeat(74))
@@ -51,11 +76,13 @@ allFails = allFails.concat(runGroup('英文姓名', B.POS_EN_PERSON, true))
 allFails = allFails.concat(runGroup('英文大小写变体', B.POS_EN_CASE, true))
 allFails = allFails.concat(runGroup('中文无职称姓名', B.POS_CN_BARE, true))
 allFails = allFails.concat(runGroup('标识符（学号/电话等）', B.POS_IDENTIFIER, true))
+allFails = allFails.concat(runExactGroup('拼音姓名（连写/姓在前）', B.POS_PINYIN_NAME))
 console.log()
 allFails = allFails.concat(runGroup('负·形似姓名的普通词', B.NEG_LOOKS_LIKE_NAME, false))
 allFails = allFails.concat(runGroup('负·泛称与固定搭配', B.NEG_GENERIC, false))
 allFails = allFails.concat(runGroup('负·英文普通词', B.NEG_EN, false))
 allFails = allFails.concat(runGroup('负·普通数字', B.NEG_IDENTIFIER, false))
+allFails = allFails.concat(runExactGroup('负·形似拼音的英文词', B.NEG_PINYIN_NAME))
 
 // ---- 疑似清单：应告警 / 不应告警 ----
 //
@@ -119,6 +146,7 @@ function runConfirmedGroup (name, cases) {
 console.log()
 allFails = allFails.concat(runSuspectGroup('疑似·院校简称', B.SUSPECT_INSTITUTION))
 allFails = allFails.concat(runSuspectGroup('疑似·英文裸全名', B.SUSPECT_EN_NAME))
+allFails = allFails.concat(runSuspectGroup('疑似·拼音姓名', B.SUSPECT_PINYIN_NAME))
 allFails = allFails.concat(runConfirmedGroup('确认·强制脱敏回灌', B.CONFIRMED))
 
 console.log()
@@ -126,8 +154,11 @@ console.log('-'.repeat(74))
 
 const totalCases = B.POS_ORG.length + B.POS_CN_PERSON.length + B.POS_EN_PERSON.length +
   B.POS_EN_CASE.length + B.POS_CN_BARE.length + B.POS_IDENTIFIER.length +
+  B.POS_PINYIN_NAME.length +
   B.NEG_LOOKS_LIKE_NAME.length + B.NEG_GENERIC.length + B.NEG_EN.length +
-  B.NEG_IDENTIFIER.length
+  B.NEG_IDENTIFIER.length + B.NEG_PINYIN_NAME.length +
+  B.SUSPECT_INSTITUTION.length + B.SUSPECT_EN_NAME.length +
+  B.SUSPECT_PINYIN_NAME.length + B.CONFIRMED.length
 const passed = totalCases - allFails.length
 
 console.log('总计: ' + passed + ' / ' + totalCases +

@@ -3,7 +3,8 @@
  *
  * 问题：
  *   脱敏引擎现在是多个 CommonJS 模块（desensitize / name-detector /
- *   identifier-detector / name-dict.json）。
+ *   identifier-detector / institution-detector / pinyin-detector
+ *   + 两份 JSON 词典）。
  *   浏览器没有 require —— 站点里的 <script src="desensitize.js"> 会直接挂掉。
  *
  * 做法：
@@ -14,7 +15,7 @@
  *
  * 为什么不用打包器（webpack/rollup）：
  *   站点是纯静态的，引入构建链会让部署复杂化；
- *   而这里的依赖关系极简（4 个模块、无循环依赖），
+ *   而这里的依赖关系极简（5 个模块、无循环依赖），
  *   30 行代码就能搞定，不需要工具链。
  *
  * 用法：node scripts/build-browser-engine.js
@@ -30,7 +31,19 @@ const MODULES = [
   { file: 'name-detector.js', name: 'name-detector' },
   { file: 'identifier-detector.js', name: 'identifier-detector' },
   { file: 'institution-detector.js', name: 'institution-detector' },
+  { file: 'pinyin-detector.js', name: 'pinyin-detector' },
   { file: 'desensitize.js', name: 'desensitize' }
+]
+
+/**
+ * JSON 词典文件
+ *
+ * 每个词典会被注册成一个模块，模块名 = 文件名去掉 .json。
+ * 这样 `require('./name-dict.json')` → `__require('name-dict')` 正好对上。
+ */
+const DICT_FILES = [
+  'name-dict.json',
+  'pinyin-dict.json'
 ]
 
 /**
@@ -106,13 +119,20 @@ function build () {
     parts.push('')
   }
 
-  // name-dict.json 作为 JS 对象内联
-  const dict = JSON.parse(fs.readFileSync(path.join(HERE, 'name-dict.json'), 'utf8'))
-  parts.push('  // ---- name-dict.json ----')
-  parts.push('  __modules["name-dict"] = function (module) {')
-  parts.push('    module.exports = ' + JSON.stringify(dict))
-  parts.push('  }')
-  parts.push('')
+  // JSON 词典作为 JS 对象内联
+  //
+  // 每个 JSON 词典单独注册成一个模块，
+  // 这样 `require('./xxx-dict.json')` 会被 transform 成
+  // `__require('xxx-dict')`，正好对应这里的注册名。
+  for (const dictFile of DICT_FILES) {
+    const dict = JSON.parse(fs.readFileSync(path.join(HERE, dictFile), 'utf8'))
+    const modName = dictFile.replace(/\.json$/, '')
+    parts.push('  // ---- ' + dictFile + ' ----')
+    parts.push('  __modules[' + JSON.stringify(modName) + '] = function (module) {')
+    parts.push('    module.exports = ' + JSON.stringify(dict))
+    parts.push('  }')
+    parts.push('')
+  }
 
   parts.push('  // 暴露到全局')
   parts.push('  var DES = __require("desensitize")')
@@ -127,7 +147,9 @@ function build () {
   console.log('[ok] 浏览器版引擎已生成')
   console.log('     输出: ' + outPath)
   console.log('     大小: ' + fs.statSync(outPath).size + ' bytes')
-  console.log('     内联模块: ' + MODULES.map(function (m) { return m.file }).join(', ') + ', name-dict.json')
+  console.log('     内联模块: ' +
+    MODULES.map(function (m) { return m.file }).join(', ') +
+    ', ' + DICT_FILES.join(', '))
 }
 
 build()

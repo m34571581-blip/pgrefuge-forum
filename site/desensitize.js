@@ -818,6 +818,252 @@
 
   }
 
+  // ---- pinyin-detector.js ----
+  __modules["pinyin-detector"] = function (module) {
+    /**
+     * 拼音姓名识别模块（pinyin-detector.js）
+     *
+     * 要解决的问题
+     * ------------
+     * 用户实测缺口：`i hate wangjunkai` 完全检测不到。
+     *
+     * 根因：现有英文规则（b1~b5）全部依赖**空格分隔的两词结构**
+     *      （「名 + 姓」，如 "Ming Liu"）。
+     *      而中文人名写成拼音时有两种形态，全都够不着：
+     *        ① 连写：wangjunkai / wangjun / liuxiaodong
+     *        ② 带空格但姓在前：Wang Junkai
+     *
+     * 判别难点
+     * --------
+     * 连写拼音与英文普通词在形态上高度同形 —— 这是本模块的核心难点。
+     * 实测 9884 个常用英文词里，粗放的「音节切分」会误判 68 个：
+     *   make / like / here / human / magazine / sunshine / machine …
+     *
+     * 所以判据是四层合取，缺一不可：
+     *
+     *   1. 首段 ∈ 百家姓拼音表（90 个）      → 提供「姓」锚点
+     *   2. 全串可切分为合法拼音音节（424 个） → 提供「名」结构
+     *   3. 整串不在英文常用词排除表（68 个）  → 排除 make/like/here
+     *   4. 长度 ≥ 4                          → 排除单姓单音节
+     *
+     * 实测：9884 个常用英文词误伤 0 个；
+     *      wangjunkai / liuxiaodong / zhangsan / xiaoming 全部命中。
+     *
+     * 与中文姓名层的关系
+     * ------------------
+     * 中文层（name-detector.js）靠「指人上下文线索」判定真假名；
+     * 拼音层**不做二次判定** —— 因为拼音姓名一旦成立，误伤成本
+     * 与漏检成本相当（都是真实姓名），所以拼音层只负责**识别形态**，
+     * 真假交给上层的线索加权层，与中文层共用同一套线索机制。
+     */
+
+    /** 合法拼音音节表（424 个，覆盖所有汉字读音） */
+    const SYLLABLES = new Set(__require("pinyin-dict").syllables)
+
+    /** 百家姓拼音（90 个，含 16 个复姓连写） */
+    const PINYIN_SURNAMES = new Set(__require("pinyin-dict").surnames)
+
+    /**
+     * 英文常用词排除表（68 个）
+     *
+     * 只存**会被误判的**那些，而不是全部 9884 个常用词 ——
+     * 词典体积从 60KB 降到 1.3KB，而效果完全一样。
+     *
+     * 这份表是数据驱动的：构建期用 google-10000-english 词表
+     * 与「音节切分 + 姓氏锚点」的判定求交集得出（见 build-pinyin-dict.py）。
+     */
+    const BLOCK_WORDS = new Set(__require("pinyin-dict").blockWords)
+
+    /** 拼音名的最小长度 —— 排除单姓单音节（如 "wang"） */
+    const MIN_LEN = 4
+
+    /** 音节切分时的最大音节长度 */
+    const MAX_SYLLABLE_LEN = 6
+
+    /**
+     * 把一个纯字母串贪心切分为拼音音节序列
+     *
+     * 贪心最长匹配：汉语拼音音节里，长的几乎都不是其他音节的前缀，
+     * 所以最长匹配既准确又无歧义。
+     *
+     * 例：wangjunkai → ['wang', 'jun', 'kai']
+     *
+     * @param {string} word 全小写纯字母串
+     * @param {Set<string>} table 音节表
+     * @returns {string[]|null} 音节序列；无法切分时返回 null
+     */
+    function splitSyllables (word, table) {
+      const out = []
+      let i = 0
+      const n = word.length
+      while (i < n) {
+        let hit = null
+        const maxL = Math.min(MAX_SYLLABLE_LEN, n - i)
+        for (let L = maxL; L > 0; L--) {
+          if (table.has(word.slice(i, i + L))) {
+            hit = L
+            break
+          }
+        }
+        if (hit === null) return null
+        out.push(word.slice(i, i + hit))
+        i += hit
+      }
+      return out
+    }
+
+    /**
+     * 判断一个纯字母串是否是「连写拼音姓名」
+     *
+     * 判据见文件头：姓氏锚点 + 音节结构 + 英文词排除 + 最小长度。
+     *
+     * @param {string} word 待判断的字符串（会被转小写）
+     * @returns {{surname: string, given: string[], syllables: string[]}|null}
+     */
+    function matchPinyinName (word) {
+      if (!word) return null
+      const w = String(word).toLowerCase()
+      if (w.length < MIN_LEN) return null
+      if (!/^[a-z]+$/.test(w)) return null
+      // 英文常用词排除
+      if (BLOCK_WORDS.has(w)) return null
+
+      const syllables = splitSyllables(w, SYLLABLES)
+      if (!syllables || syllables.length < 2) return null
+
+      // 首段必须是姓氏
+      const surname = syllables[0]
+      if (!PINYIN_SURNAMES.has(surname)) return null
+
+      return {
+        surname: surname,
+        given: syllables.slice(1),
+        syllables: syllables
+      }
+    }
+
+    /**
+     * 在文本中找出所有「拼音姓名」候选
+     *
+     * 覆盖两种形态：
+     *   ① 连写：wangjunkai / Wangjunkai / WANGJUNKAI
+     *   ② 带空格（姓在前）：Wang Junkai / wang jun kai
+     *
+     * 形态 ② 的处理方式：把「姓」和「名」分别判定，再看能否拼成一个合法姓名。
+     *   "Wang Junkai" → 姓 = "Wang"（在姓氏表里），
+     *                  名 = "Junkai"（可切成 jun|kai 两个音节）
+     *                  → 拼起来是合法拼音姓名 ✓
+     *
+     * 为什么不用「合并成一段再切分」：
+     *   "i hate wangjunkai" 合并后是 "ihatewangjunkai"，
+     *   首段 "i" 不是姓氏 → 整个片段被丢弃 → 漏检。
+     *   而姓名往往只是这句话里的**一个词**，前面的 "i hate" 与它无关。
+     *
+     * 所以采用「逐词 + 逐切分点」策略：
+     *   1. 先把文本切成连续的纯字母片段
+     *   2. 每个片段内，枚举所有「起点 + 长度」组合
+     *   3. 组合必须满足：首词是姓氏 + 整体可切分为音节 + 非英文常用词
+     *
+     * @param {string} text
+     * @returns {Array<{start:number, end:number, text:string, surname:string, given:string[]}>}
+     */
+    function findPinyinNames (text) {
+      const out = []
+      if (!text) return out
+
+      // 匹配「一个或多个纯字母词，单词间用空格分隔」
+      // 例：wangjunkai / wang junkai / wang jun kai
+      const re = /[A-Za-z]+(?:[ \t]+[A-Za-z]+)*/g
+      let m
+      while ((m = re.exec(text)) !== null) {
+        const span = m[0]
+        if (span.length < MIN_LEN) continue
+
+        // 每个词在 span 中的起止位置
+        const words = []
+        let pos = 0
+        for (const w of span.split(/[ \t]+/)) {
+          if (!w) continue
+          const at = span.indexOf(w, pos)
+          words.push({ text: w, start: at, end: at + w.length })
+          pos = at + w.length
+        }
+        if (!words.length) continue
+
+        // 枚举起点：每个词都可能是「姓」的起点
+        for (let s = 0; s < words.length; s++) {
+          const first = words[s]
+          const lowerFirst = first.text.toLowerCase()
+
+          // ---- 起点就是这个单独的连写词 ----
+          if (words.length === 1) {
+            const hit = matchPinyinName(first.text)
+            if (hit) {
+              out.push({
+                start: m.index + first.start,
+                end: m.index + first.end,
+                text: first.text,
+                surname: hit.surname,
+                given: hit.given
+              })
+            }
+            break
+          }
+
+          // ---- 起点词必须能作为姓名的开头 ----
+          //
+          // 两种可能：
+          //   a) 起点词**本身就是**姓氏 → 后面跟「名」（多词形态）
+          //      例：Wang Junkai → 姓 Wang，名 Junkai
+          //   b) 起点词是「姓+名连写」 → 后面没有名了
+          //      例：wangjunkai → 姓 wang，名 jun+kai
+          //
+          // 只检查 (a) 会漏掉 (b) —— 而 (b) 才是最常见的形态。
+          const firstIsSurname = PINYIN_SURNAMES.has(first.text.toLowerCase())
+          const firstIsWholeName = !!matchPinyinName(first.text)
+          if (!firstIsSurname && !firstIsWholeName) continue
+
+          // ---- 从该起点往后延伸，枚举长度 ----
+          //
+          // 取**最长**命中，而不是最早命中。
+          //
+          // 为什么：
+          //   "i hate wang jun kai" → "wangjun" 也能切成 wang|jun|kai（命中）
+          //                            "wangjunkai" 切成 wang|jun|kai（也命中）
+          //   若取最早命中，会停在 "wang jun"，漏掉后面的 "kai"。
+          //   取最长命中才是完整的人名。
+          let best = null
+          for (let e = s; e < words.length; e++) {
+            const piece = words.slice(s, e + 1)
+            const joined = piece.map(function (w) { return w.text }).join('').toLowerCase()
+            const hit = matchPinyinName(joined)
+            if (!hit) continue
+            best = {
+              start: m.index + piece[0].start,
+              end: m.index + piece[piece.length - 1].end,
+              text: piece.map(function (w) { return w.text }).join(' '),
+              surname: hit.surname,
+              given: hit.given
+            }
+          }
+          if (best) out.push(best)
+        }
+      }
+      return out
+    }
+
+    module.exports = {
+      SYLLABLES,
+      PINYIN_SURNAMES,
+      BLOCK_WORDS,
+      MIN_LEN,
+      splitSyllables,
+      matchPinyinName,
+      findPinyinNames
+    }
+
+  }
+
   // ---- desensitize.js ----
   __modules["desensitize"] = function (module) {
     /**
@@ -858,32 +1104,32 @@
      * 断言只挡住「我」，捕获组照旧吃进「们在湖南」——输出成了「我某校读研」，
      * 虚词和地名一起消失。断言下沉到每个字符后才修好。
      */
-
+    
     /** 泛称 + 称谓（p1 保护名单） */
     const GENERIC =
       '(我们|他们|其他|某位|哪位|这位|那位|这个|那个|你的|他的|她的|一位|该|各|所有|的|骂|批评|指责|催|逼|卷|折磨|折腾)'
-
+    
     /** 称谓（p7 目标） */
     const TITLES = '(老师|导师|副教授|教授|讲师|博士|博导|系主任)'
-
+    
     /** 泛称 + 机构词（p2 保护名单） */
     const GENERIC_ORG =
       '(今天|明天|昨天|前天|后天|上午|下午|晚上|早上|中午|最近|目前|每次|平时|每天|每周|每月|通常|经常|我们|你们|他们|这个|那个|一个|该|隔壁|附近|对面|旁边)'
-
+    
     /** 机构词（p4/p5/p6 目标） */
     const ORGS = '(大学|学校|院校|学院|学系|课题组|实验室|科研团队|团队)'
-
+    
     /**
      * 虚词黑名单 —— 捕获的机构名里不允许出现这些字
      * 这份名单决定「捕获组」能吃进多少字符。
      */
     const VIRTUAL =
       '(?!我|你|他|她|它|咱|们|这|那|个|是|去|回|到|达|把|被|给|跟|和|与|但|就|也|还|很|更|不|没|有|找|叫|让|对|从|向|其|之|所|及|或|在|着|过|了|吗|呢|吧|啊|又|再|才|只|最|太|挺|将|已)'
-
+    
     /** 捕获组：每个字符前都断言不是虚词 */
     const NAME = '(?:' + VIRTUAL + '[一-龥A-Za-z0-9])'
     const NAME_CN = '(?:' + VIRTUAL + '[一-龥])'
-
+    
     /**
      * 名称与机构词/称谓之间的分隔符
      *
@@ -910,7 +1156,7 @@
     const SEP =
       '(?<sep>(?:(?![一-龥])[\\s\\-–—_·・' +
       '－~～/\\\\])*?)'
-
+    
     /**
      * 可选的成对括号（包住后缀）
      *
@@ -935,7 +1181,7 @@
      */
     const BRACKET_OPEN = '(?:[\\u005B\\u0028\\uFF08\\u3010\\u300A\\u3008\\u300C\\u300E]\\s*)?'
     const BRACKET_CLOSE = '(?:[\\u005D\\u0029\\uFF09\\u3011\\u300B\\u3009\\u300D\\u300F])?'
-
+    
     /**
      * 英文脱敏规则
      *
@@ -943,7 +1189,7 @@
      * 每条规则都要求「称谓 + 至少一个看起来像姓名的词」同时出现，
      * 避免误伤普通英文（the teacher、my professor 这类不带姓名的表达）。
      */
-
+    
     /**
      * 生成英文词的大小写变体正则
      *
@@ -970,25 +1216,25 @@
         })
         .join('|')
     }
-
+    
     /** 缩写式称谓（后面跟姓）：Mr.Liu / MR.LIU / Dr. Smith */
     const EN_TITLE_DOT = '(?:' + enVariants(['Mr', 'Mrs', 'Ms', 'Dr', 'Prof', 'Sr', 'Jr']) + ')'
-
+    
     /** 完整称谓（后面跟姓）：Professor Wang / PROFESSOR WANG / Advisor Liu */
     const EN_TITLE = '(?:' + enVariants([
       'Professor', 'Advisor', 'Supervisor', 'Teacher', 'Tutor',
       'Mentor', 'Coordinator', 'Director', 'Head', 'Chair'
     ]) + ')'
-
+    
     /** 小写职衔（后面跟姓）：advisor Liu / advisor LIU */
     const EN_TITLE_LOWER = '(?:advisor|supervisor|mentor|tutor)'
-
+    
     /** 英文机构词（支持全大写：TSINGHUA UNIVERSITY） */
     const EN_ORG = '(?:' + enVariants([
       'University', 'College', 'Institute', 'Laboratory', 'Lab',
       'School', 'Academy', 'Polytechnic'
     ]) + ')'
-
+    
     /**
      * 像英文姓名的词
      *
@@ -1007,7 +1253,7 @@
      */
     const EN_NAME_STRICT = '[A-Z][a-z]{1,15}'
     const EN_NAME_ANY = '[A-Z][A-Za-z]{1,15}'
-
+    
     /**
      * 姓的可选后缀与连字符部分
      *
@@ -1031,10 +1277,10 @@
       EN_NAME_ANY + '(?:\\s*-\\s*' + EN_NAME_ANY + ')?'
     const EN_NAME_SUFFIX =
       '(?:(?<![A-Za-z])\\s+(?<sfx>' + enVariants(['Jr', 'Sr', 'II', 'III', 'IV']) + ')\\.?)?'
-
+    
     /** 像英文机构名的词组：Tsinghua / New York / TSINGHUA */
     const EN_ORG_NAME = '[A-Z][a-zA-Z]{1,20}(?:\\s+[A-Z][a-zA-Z]{1,20}){0,2}'
-
+    
     // 与服务端 chr() 标记同构（用 String.fromCharCode，避免源码里出现控制字符）
     /**
      * 姓名识别模块（分层识别）
@@ -1053,7 +1299,7 @@
      * 词典由 build-name-dict.py 从真实语料生成，可复现、可更新。
      */
     const NAME_DETECT = __require("name-detector")
-
+    
     /**
      * 标识符识别模块（学号 / 手机号 / 邮箱 / 社交账号 / 房间号）
      *
@@ -1064,7 +1310,19 @@
      * 详见 identifier-detector.js 的头部注释。
      */
     const IDENT_DETECT = __require("identifier-detector")
-
+    
+    /**
+     * 拼音姓名识别模块（pinyin-detector.js）
+     *
+     * 与姓名、标识符分开，因为判别逻辑完全不同：
+     *   姓名 / 标识符 —— 靠形态或格式判定
+     *   院校简称       —— 靠**词典 + 学术语境**判定
+     *   拼音姓名       —— 靠**音节切分 + 姓氏锚点 + 英文词排除**判定
+     *
+     * 详见 pinyin-detector.js 的头部注释。
+     */
+    const PINYIN_DETECT = __require("pinyin-detector")
+    
     /**
      * 院校简称识别模块（institution-detector.js）
      *
@@ -1075,12 +1333,12 @@
      * 详见 institution-detector.js 的头部注释。
      */
     const INSTITUTION_DETECT = __require("institution-detector")
-
+    
     const M1 = String.fromCharCode(1) // 泛称保护
     const M2 = String.fromCharCode(2) // 替换结果包裹
     const M3 = String.fromCharCode(3) // 「的」占位
     const M4 = String.fromCharCode(4) // 泛称 + 机构词保护
-
+    
     /**
      * 敏感信息类型的展示文案
      *
@@ -1104,7 +1362,7 @@
       personEn: '英文姓名',
       orgEn: '英文机构名'
     }
-
+    
     /** 英文版标签 */
     const HIT_LABELS_EN = {
       identifier: 'ID / Number',
@@ -1122,7 +1380,7 @@
       personEn: 'English name',
       orgEn: 'English organization'
     }
-
+    
     /**
      * 占位符表
      *
@@ -1154,7 +1412,7 @@
       personEn: '某',
       orgEn: '某'
     }
-
+    
     const MASK_EN = {
       school: '___',
       college: '___',
@@ -1164,7 +1422,7 @@
       personEn: 'Someone',
       orgEn: '___'
     }
-
+    
     /**
      * 清掉没有配对左括号的闭合符号
      *
@@ -1200,14 +1458,14 @@
       }
       return out
     }
-
+    
     /** 判定一段文本的主体语言：'cn' / 'en' */
     function detectLang(text) {
       const cn = (String(text).match(/[一-龥]/g) || []).length
       const en = (String(text).match(/[A-Za-z]/g) || []).length
       return cn >= en ? 'cn' : 'en'
     }
-
+    
     /**
      * 英文常见姓氏（107 个）
      *
@@ -1241,7 +1499,7 @@
       'du', 'su', 'wei', 'cheng', 'lv', 'ding', 'shen', 'ren', 'yao', 'lu',
       'fu', 'zhong', 'cui', 'tan', 'liao', 'fan', 'jin', 'qian', 'shu', 'meng'
     ])
-
+    
     /**
      * 判断一个英文词是否是常见姓氏（大小写不敏感）
      */
@@ -1249,7 +1507,7 @@
       if (!word) return false
       return EN_SURNAMES.has(word.toLowerCase())
     }
-
+    
     /**
      * 标识符类型 → 占位符 key
      */
@@ -1263,7 +1521,7 @@
       }
       return map[kind] || 'identifier'
     }
-
+    
     /**
      * 英文称谓词表
      *
@@ -1277,12 +1535,12 @@
       'coordinator', 'director', 'head', 'chair',
       'boss', 'colleague', 'friend', 'roommate', 'partner'
     ])
-
+    
     function isEnTitleWord (word) {
       if (!word) return false
       return EN_TITLE_WORDS.has(word.toLowerCase())
     }
-
+    
     /**
      * 判断一个英文片段是否「像姓」（宽松版）
      *
@@ -1296,7 +1554,7 @@
       if (!fragment) return false
       const words = fragment.trim().split(/\s+/).filter(Boolean)
       if (!words.length) return false
-
+    
       // 只看**第一段**（姓本身）。
       //
       // 为什么：匹配时为了兼容「名 + 姓」，正则会顺带吞掉后面的普通词
@@ -1313,7 +1571,7 @@
       if (w.length < 2) return false
       return true
     }
-
+    
     /**
      * 判断一个英文片段是否「像姓名」
      *
@@ -1351,12 +1609,12 @@
       'good', 'bad', 'best', 'worst', 'long', 'short', 'high', 'low', 'big',
       'him', 'her', 'them', 'sorry', 'thanks', 'please', 'hello', 'yes'
     ])
-
+    
     function looksLikeEnName (fragment) {
       if (!fragment) return false
       const words = fragment.trim().split(/\s+/).filter(Boolean)
       if (!words.length) return false
-
+    
       // 多段（名 + 姓）：**每一段都**必须像姓名。
       //
       // 为什么不能用「有一段像就行」：
@@ -1367,7 +1625,7 @@
       if (words.length >= 2) {
         return words.every(function (w) { return looksLikeEnName(w) })
       }
-
+    
       const w = words[0]
       // 全大写 → 缩写，不动
       if (/^[A-Z]{2,}$/.test(w)) return false
@@ -1379,7 +1637,69 @@
       if (/^[a-z]{2,}$/.test(w) && !EN_COMMON_WORDS.has(w)) return true
       return false
     }
-
+    
+    /**
+     * 英文「指人线索」词表
+     *
+     * 用途：给拼音姓名判定真假名。
+     *
+     * 为什么中文层有线索表、英文层原来没有：
+     *   中文裸姓名「王小明」和普通词「这周」形态上无法区分，
+     *   所以必须靠上下文线索。英文「Ming Liu」有姓氏表兜底，
+     *   判别力够强，所以 b1~b5 直接用结构锚点。
+     *   但拼音姓名「wangjunkai」是**连写**的，
+     *   姓氏表帮不上忙（它不是「名 + 姓」结构），
+     *   所以需要像中文层一样，用上下文线索来加权。
+     *
+     * 三类线索：
+     *   动作类：hate / blame / annoy / criticize …  → 后面在说人
+     *   关系类：my roommate / his advisor / our supervisor … → 明确指人
+     *   自称类：I am / my name is / call me … → 说话人在报名字
+     */
+    const EN_CUE_WORDS = [
+      // 动作类（对人的行为）
+      'hate', 'hated', 'hates', 'love', 'loved', 'blame', 'blamed', 'annoy',
+      'annoyed', 'criticize', 'criticized', 'curse', 'cursed', 'thank',
+      'thanked', 'congratulate', 'congratulated', 'praise', 'miss',
+      'missed', 'call', 'called', 'email', 'emailed', 'contact', 'contacted',
+      'visit', 'visited', 'ask', 'asked', 'tell', 'told', 'remind', 'reminded',
+      'warn', 'warned', 'admire', 'respect', 'fear', 'dislike', 'argue',
+      'fight', 'scold', 'scolded', 'praise', 'trust', 'avoid', 'follow',
+      'bother', 'bothered', 'help', 'helped', 'meet', 'met', 'know', 'knew',
+      'report', 'reported', 'complain', 'complained', 'ignore', 'ignored',
+      // 关系类
+      'roommate', 'advisor', 'supervisor', 'mentor', 'tutor', 'colleague',
+      'classmate', 'teammate', 'neighbor', 'neighbour', 'boss', 'partner',
+      'boyfriend', 'girlfriend', 'friend', 'teacher', 'professor', 'student',
+      'senior', 'junior', 'classmate', 'labmate', 'schoolmate',
+      // 自称类
+      'name', 'myself'
+    ]
+    
+    /**
+     * 判断一个片段附近是否有「英文指人线索」
+     *
+     * 与中文层的 findCue 同构：看片段前后各若干个字符，命中即认为在指人。
+     *
+     * @param {string} text 全文
+     * @param {number} start 片段起始
+     * @param {number} end 片段结束
+     * @param {number} [window] 前后各看多少字符
+     * @returns {string|null} 命中的线索词；没有则 null
+     */
+    function findEnCue (text, start, end, window) {
+      const w = window || 24
+      const before = ' ' + text.slice(Math.max(0, start - w), start).toLowerCase() + ' '
+      const after = ' ' + text.slice(end, Math.min(text.length, end + w)).toLowerCase() + ' '
+    
+      for (const c of EN_CUE_WORDS) {
+        // 词边界匹配，避免 "like" 命中 "likely"、"class" 命中 "classmate" 之外的干扰
+        const re = new RegExp('(^|[^a-z])' + c.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '([^a-z]|$)')
+        if (re.test(before) || re.test(after)) return c
+      }
+      return null
+    }
+    
     /**
      * 统计子串在文本中的出现次数（不重叠）
      */
@@ -1393,7 +1713,7 @@
       }
       return n
     }
-
+    
     /**
      * 求某个片段在文本中是「第几次出现」（从 0 起）
      *
@@ -1415,7 +1735,7 @@
       }
       return nth
     }
-
+    
     /**
      * 求某个片段在文本中第 n 次出现的起始位置（找不到返回 -1）
      */
@@ -1427,7 +1747,7 @@
       }
       return idx
     }
-
+    
     /**
      * 找出英文裸全名候选（无称谓、无关系词的「名 + 姓」）
      *
@@ -1458,7 +1778,7 @@
       }
       return out
     }
-
+    
     /**
      * 脱敏
      *
@@ -1475,7 +1795,7 @@
       const src = text || ''
       const hits = []
       let out = src
-
+    
       // 用户已确认的片段 → 强制脱敏
       //
       // 为什么要这个回灌接口：
@@ -1487,7 +1807,7 @@
       // 前端只负责"收集用户点了哪些"，不自己写脱敏规则 ——
       // 否则脱敏逻辑就有两份，浏览器和论坛同步管道会漂移。
       const confirmed = (options && options.confirmed) || []
-
+    
       // 确认项按「文本 + 第几次出现」索引
       //
       // 为什么不能只按文本匹配：
@@ -1506,10 +1826,10 @@
         if (!confirmedMap.has(key)) confirmedMap.set(key, new Set())
         confirmedMap.get(key).add(nth)
       }
-
+    
       // 每个文本已确认的次数计数器（用于取「第 N 次」的 N）
       const confirmedSeen = new Map()
-
+    
       /**
        * 判断某个位置的片段是否被用户确认
        *
@@ -1522,17 +1842,17 @@
         if (!set || !set.size) return false
         return set.has(occurrenceIndex(haystack, fragment, start))
       }
-
+    
       // 已按用户确认强制脱敏的片段数
       let confirmedApplied = 0
-
+    
       // p1 泛称 + 称谓保护
       out = out.replace(new RegExp(GENERIC + TITLES, 'g'), '$1' + M1 + '$2')
       // p2 泛称 + 机构词保护
       out = out.replace(new RegExp(GENERIC_ORG + ORGS, 'g'), '$1' + M4 + '$2' + M4)
       // p3 「的」占位
       out = out.replace(/的/g, M3)
-
+    
       // 替换并统计命中数
       // 注意：使用 callback 时替换串里的 $1/$2 不会被解析，必须手动取捕获组
       //
@@ -1562,7 +1882,7 @@
         })
         if (n > 0) hits.push({ kind, count: n, lang: lang || 'cn' })
       }
-
+    
       // p4 学校 / 院校 → 某校
       step(new RegExp('(' + NAME_CN + '{1,8})' + SEP + BRACKET_OPEN + '(大学|学校|院校)' + BRACKET_CLOSE, 'g'), 'school',
         function (m, g1, g2, g3, sep) { return M2 + MASK_CN.school + (sep || '') + M2 }, 'cn')
@@ -1595,7 +1915,7 @@
       //      判据：X 是「名」「别」「氏」这类通用词时跳过。
       step(/姓(?!(名|别|氏|氏族|名册|名学))([一-龥]{1,2})/g, 'surname',
         function (m, g1) { return M2 + MASK_CN.surname + M2 }, 'cn')
-
+    
       // ---- 英文补充规则 ----
       //
       // 放在中文规则之后：中文规则会把「的」换成 M3，英文规则不受影响；
@@ -1603,7 +1923,7 @@
       //
       // 英文的语序和中文相反 —— 英文是「称谓 + 姓」（Professor Wang），
       // 中文是「姓 + 称谓」（王教授）。两种都覆盖，但主规则必须是「称谓 + 姓」。
-
+    
       // ---- 英文姓名识别：统一由 L2b 的 b1~b5 处理 ----
       //
       // 曾经这里有 e1~e7 七条独立规则，但它们与 L2b 的 b1~b5 **功能重叠**，
@@ -1619,7 +1939,7 @@
       //
       // 老规则的问题是覆盖不全（大小写敏感），新规则 b1~b5 覆盖完整。
       // 所以正确做法是**只保留一套** —— 删除 e1~e7，规则统一在 L2b。
-
+    
       // ---- L2 上下文加权的姓名识别 ----
       //
       // 处理两类形态上像名字、但缺少称谓锚点的片段：
@@ -1636,9 +1956,9 @@
       // L3 兜底：形态像但没线索的，**不自动替换**，而是记进 suspected，
       //          由前端提示用户「这里可能有 N 处姓名未脱敏」。
       //          这是整套架构的关键 —— 把「引擎不知道」从静默失败变成显式告警。
-
+    
       const suspected = []
-
+    
       // ---- L2a：中文姓名 ----
       {
         const shapes = NAME_DETECT.findNameShaped(out)
@@ -1649,7 +1969,7 @@
           const cue = NAME_DETECT.findCue(out, sp.start, sp.end)
           // 用户已确认的片段 → 无条件脱敏（不再等线索）
           const isConfirmedHit = isConfirmed(sp.text, sp.start, out)
-
+    
           if (cue || isConfirmedHit) {
             // 有线索 或 用户已确认 → 脱敏
             out = out.slice(0, sp.start) + M2 + MASK_CN.person + M2 + out.slice(sp.end)
@@ -1680,7 +2000,7 @@
         }
         if (cnCount > 0) hits.push({ kind: 'personCn', count: cnCount, lang: 'cn' })
       }
-
+    
       // ---- L2b：英文姓名（大小写不敏感 + 全名） ----
       //
       // 覆盖用户实测的全部缺口：
@@ -1693,7 +2013,7 @@
       {
         let enCount = 0
         let work = out
-
+    
         // b1: 缩写称谓 + 任意大小写的姓
         //    Mr.liu / mr. liu / MR.LIU / mR.lIU 都要能识别，
         //    所以称谓本身大小写不敏感。
@@ -1722,7 +2042,7 @@
           const masked = parts.map(function (p) { return MASK_EN.personEn }).join('-')
           return M2 + g1 + '. ' + masked + M2
         })
-
+    
         // b2: 完整称谓 + 任意大小写的姓
         //    「my professor was not there」里的 professor 是小写泛称，
         //    所以完整称谓**必须首字母大写**才算锚点。
@@ -1742,7 +2062,7 @@
           const masked = parts.map(function (p) { return MASK_EN.personEn }).join('-')
           return M2 + g1 + ' ' + masked + M2
         })
-
+    
         // b2b: 姓 + 完整称谓（另一种语序）：Liu Professor / WANG Professor
         //      中式英语或简历写法里会出现。
         //      与 b2 不冲突 —— b2 是「称谓 + 姓」，这是「姓 + 称谓」。
@@ -1757,7 +2077,7 @@
             return M2 + masked + ' ' + g2 + M2
           })
         }
-
+    
         // b3: 纯姓形态（关系词锚定）：Liu is my advisor / LIU IS MY ADVISOR
         //     姓可以是任意大小写 —— 关系词已经提供了足够的上下文信号。
         //    姓必须在英文姓氏表里 —— 关系词已经提供了上下文，
@@ -1772,7 +2092,7 @@
           enCount++
           return M2 + MASK_EN.personEn + M2 + g2
         })
-
+    
         // b4: 关系词 + 姓（另一语序）：my advisor Liu / her supervisor Wang
         //    同理，人称与关系词都要保留 —— 只把姓换掉。
         const relThenName = /\b((?:my|our|his|her|their)\s+(?:advisor|supervisor|mentor|tutor|teacher|professor|boss|colleague|friend|roommate|partner)\s+)([A-Za-z]+)/gi
@@ -1781,7 +2101,7 @@
           enCount++
           return M2 + g1 + ' ' + MASK_EN.personEn + M2
         })
-
+    
         // b5: 全名（名 + 姓），两词都首字母大写或全小写：
         //     Ming Liu / ming liu
         //     要求后接动作动词或关系词，避免误伤 "new york"、"hong kong" 这类地名。
@@ -1810,7 +2130,7 @@
           enCount++
           return M2 + MASK_EN.personEn + ' ' + MASK_EN.personEn + M2
         })
-
+    
         // b6: 英文机构名 → ___ University
         //     机构词本身也要能匹配全大写（UNIVERSITY）。
         //     与 b5 不冲突 —— b5 要求末词是**姓氏**，而机构词不在姓氏表里。
@@ -1826,11 +2146,11 @@
           })
           if (orgCount > 0) hits.push({ kind: 'orgEn', count: orgCount, lang: 'en' })
         }
-
+    
         out = work
         if (enCount > 0) hits.push({ kind: 'personEn', count: enCount, lang: 'en' })
       }
-
+    
       // ---- L2c：标识符（学号 / 手机号 / 邮箱 / 社交账号 / 房间号） ----
       //
       // 这些信息同样能定位到个人，而且格式规整，可以用「关键词 + 格式」可靠识别。
@@ -1850,7 +2170,7 @@
           hits.push({ kind: 'identifier_' + kind, count: counts[kind], lang: 'cn' })
         }
       }
-
+    
       // ---- L2d：英文姓名（无称谓、无关系词的裸全名） ----
       //
       // b1~b6 都需要结构锚点（称谓/关系词/后接动词），
@@ -1885,7 +2205,7 @@
           }
         }
       }
-
+    
       // ---- L2e：院校简称 ----
       //
       // L1 的机构词规则要求「校名 + 大学/学院」这类带后缀的形式，
@@ -1914,10 +2234,55 @@
           }
         }
       }
-
+    
+      // ---- L2f：拼音姓名（连写 / 姓在前）----
+      //
+      // b1~b6 与 L2d 都要求「空格分隔的名 + 姓」结构，
+      // 而中文人名写成拼音时最常见的形态恰恰是**连写**：
+      //   "i hate wangjunkai"    ← 用户实测的漏检案例
+      //   "wang jun kai" / "Wang Junkai"  ← 姓在前
+      //
+      // 这些形态对 b1~b6 完全不可见 —— 是静默漏检，不是误判。
+      //
+      // 形态判定交给 pinyin-detector（音节切分 + 姓氏锚点 + 英文词排除），
+      // 真假名交给英文指人线索加权 —— 与中文层同构：
+      //
+      //   有线索（如 "i hate wangjunkai"）→ 自动脱敏
+      //   无线索（孤零零一个 "wangjunkai"）→ 进疑似清单，交给用户确认
+      //
+      // 为什么无线索时不自动脱敏：
+      //   连写拼音与英文普通词形态同形，虽然音节判据已把误伤压到
+      //   9884 常用词 0 误伤，但连写形态本身仍是「弱信号」。
+      //   而用户显式点名「拼音全称要脱敏」，说明这类内容对他很重要 ——
+      //   所以宁可多提醒一次，也不要静默放过。
+      {
+        const pyNames = PINYIN_DETECT.findPinyinNames(out)
+        for (let i = pyNames.length - 1; i >= 0; i--) {
+          const cand = pyNames[i]
+          const cue = findEnCue(out, cand.start, cand.end)
+          const isConfirmedHit = isConfirmed(cand.text, cand.start, out)
+    
+          if (cue || isConfirmedHit) {
+            // 有指人线索，或用户已确认 → 脱敏
+            out = out.slice(0, cand.start) + M2 + MASK_EN.personEn + M2 + out.slice(cand.end)
+            hits.push({ kind: 'personEn', count: 1, lang: 'en' })
+            if (isConfirmedHit && !cue) confirmedApplied++
+          } else {
+            suspected.push({
+              text: cand.text,
+              kind: 'person',
+              lang: 'en',
+              start: cand.start,
+              end: cand.end,
+              nth: occurrenceIndex(out, cand.text, cand.start)
+            })
+          }
+        }
+      }
+    
       // 还原「的」，去掉所有标记
       out = out.split(M3).join('的').split(M2).join('').split(M1).join('').split(M4).join('')
-
+    
       // 清理孤立的闭合括号
       //
       // 嵌套括号场景：「星洲大学（自动化学院）」
@@ -1927,7 +2292,7 @@
       //
       // 这里扫描一遍，把没有配对左括号的闭合符号去掉。
       out = removeOrphanClosers(out)
-
+    
       // 重算疑似片段的位置
       //
       // 为什么必须重算：
@@ -1965,7 +2330,7 @@
           count: countOccurrences(out, s.text)
         })
       }
-
+    
       return {
         content: out,
         changed: out !== src,
@@ -1979,7 +2344,7 @@
         confirmedApplied: confirmedApplied
       }
     }
-
+    
     /**
      * 把 hits 汇总成「学校名称、姓名 + 称谓」这样的标签列表
      *
@@ -1999,7 +2364,7 @@
         return table[parts[0]] || parts[0]
       })
     }
-
+    
     /**
      * 导出
      *
@@ -2018,7 +2383,7 @@
       ORGS,
       VIRTUAL
     }
-
+    
     if (true) {
       module.exports = API
     }
@@ -2031,6 +2396,11 @@
   // ---- name-dict.json ----
   __modules["name-dict"] = function (module) {
     module.exports = {"nameChars":["七","万","丈","世","丘","丙","业","东","丝","丞","严","中","丰","临","丹","为","丽","举","乃","久","义","之","乐","乔","九","也","习","书","乾","予","争","于","云","五","井","亦","享","京","亭","亮","亲","亿","仁","仆","今","介","从","仓","仔","仕","仗","付","仙","仟","代","令","以","仪","仰","仲","价","任","企","伊","伍","众","优","伟","传","伦","伯","伶","伸","似","伽","位","住","佐","佑","体","何","余","佟","佩","佰","佳","佻","依","侠","侣","侥","侯","俄","俊","俗","保","俞","信","俪","俭","修","俸","倘","倚","倜","倩","倪","健","傲","僚","儒","儿","允","元","兆","先","光","克","兔","全","公","兰","共","兴","其","兼","内","冉","册","冕","军","冠","冬","冰","冲","冶","冷","净","准","凉","凌","凝","凡","凤","凯","凰","函","刊","列","刚","初","利","剑","力","功","加","助","励","劲","勇","勉","勋","勘","勤","匀","化","北","匠","千","升","卉","华","卓","南","博","卡","卫","卯","即","卷","卿","厉","厚","原","厦","又","友","双","发","叙","古","句","召","可","台","右","叶","合","吉","同","名","向","君","吟","含","听","启","员","呜","和","品","哈","哲","唐","唯","商","啸","善","喜","喻","嘉","器","囊","回","因","园","固","国","图","圆","土","圣","地","圳","圻","均","坎","坚","坡","坤","坦","坪","垣","城","埔","培","基","堂","境","壁","壑","壤","士","壬","壮","处","备","复","夏","夕","多","夜","天","太","夫","夷","奇","奉","奋","奔","奕","奥","好","如","妍","妙","妞","妤","妮","妹","姆","姑","姗","姝","姬","姿","威","娅","娇","娜","娟","娥","娴","婉","婕","婧","婵","婷","媚","媛","嫣","嫦","子","字","存","孟","季","学","宁","宇","守","安","宏","宙","定","宛","宜","宝","实","客","宵","家","宸","容","宽","宿","寄","寇","富","寒","察","寥","寻","封","尊","小","少","尔","尘","尚","尧","尹","尺","尼","局","届","屏","展","履","山","岁","岗","岚","岩","岳","峙","峥","峪","峰","峻","崇","崎","崧","嵋","嶂","川","州","巡","工","巧","巨","己","巾","布","帆","师","希","帏","帕","帙","帜","带","席","常","幄","平","年","幸","幻","幼","幽","庄","庆","序","度","庭","庶","康","庸","廉","廓","延","廷","建","开","弈","弓","引","弗","弘","弥","强","当","形","彤","彦","彩","彪","彬","彰","影","役","彻","征","律","徐","得","御","循","微","德","心","忆","志","忠","念","怀","怜","思","怡","恃","恋","恍","恒","恩","恫","恬","恭","恰","悟","悠","悦","情","惜","惟","惠","愈","意","慈","慎","慕","慧","懿","戈","戊","戏","成","戒","户","才","扬","扰","承","抒","抗","折","抱","拓","招","拯","挚","振","挺","捷","描","播","擎","攀","政","敏","散","敦","敬","数","文","斌","料","斡","斤","斯","新","方","施","旃","旅","旋","既","日","旦","旨","旬","旭","时","旷","昂","昆","昊","昌","明","易","昔","昕","昙","星","映","春","昧","昭","昱","晋","晏","晓","晖","晟","晦","晨","普","景","晴","晶","智","暖","暮","曜","曦","曲","曼","月","有","朋","朔","朗","望","朝","木","本","朴","朵","机","权","杉","杏","材","村","杜","杞","来","杨","杭","杯","杰","松","极","析","枕","林","枚","果","枝","枫","柏","柑","柔","柯","柳","栅","标","栋","树","栗","校","栩","株","核","格","桂","桃","桐","桑","桦","梁","梅","梓","梦","梨","梭","棋","棕","棠","森","椰","楚","楠","楷","榆","榕","槐","槽","樊","樱","橙","欢","欣","欧","欲","歆","歇","歌","正","武","毅","毫","民","水","永","汛","汝","江","池","汪","汰","沁","沐","沙","沛","沧","河","治","泉","泊","波","泥","泰","泽","洁","洋","洛","津","洪","洲","洹","洽","流","浅","济","浙","浚","浦","浩","浪","海","涉","涌","涛","润","涧","涯","涵","淑","淘","淡","深","清","渊","渐","渔","渝","渠","温","港","湖","湘","湛","源","溢","溪","溯","滔","滟","满","滢","滨","漂","漩","漫","漾","潜","潭","潮","澜","激","瀚","火","灵","灿","炎","炙","炜","炫","烈","烟","烽","然","煊","煜","煦","照","熙","熟","燕","爱","爽","牛","牧","物","特","犀","状","献","玄","玉","玖","玛","玟","玫","玮","玲","玳","珂","珉","珊","珍","珠","班","珲","琅","理","琛","琢","琦","琪","琬","琰","琳","琴","琼","瑗","瑜","瑞","瑶","瑾","璇","璋","璐","甘","甜","生","用","田","由","甲","畅","界","畔","留","略","番","疏","登","白","百","皆","皎","皓","盈","益","盛","直","相","盼","省","眈","眉","真","睛","睹","睿","瞻","矜","知","石","砂","研","硕","碧","磊","磨","示","礼","祈","祖","神","祥","祯","祺","禅","福","禧","禹","禾","秀","秉","秋","积","稳","穆","穗","究","空","立","章","童","端","竹","笑","笙","笛","笠","等","策","筝","筠","筱","简","箴","簇","粉","粟","精","素","索","紫","絮","红","约","级","纬","纯","纱","纲","纳","纹","纽","纾","细","绍","统","绢","绩","绫","绮","维","绵","绿","缘","缙","缦","美","羡","群","羽","翊","翌","翎","翔","翠","翡","翰","翱","翼","耀","考","者","而","耐","耕","耶","耿","联","聚","聪","聿","肃","肖","育","胜","胤","脉","腾","臣","自","至","致","臻","舒","舜","舞","舟","航","舵","良","艳","艺","节","芊","芍","芙","芝","芦","芩","芬","芭","芮","芯","花","芳","芷","芸","芹","苇","苑","苗","苛","若","英","苹","茂","茄","茗","茜","茵","茹","荐","荔","荣","荷","莉","莎","莫","莱","莲","莹","莺","菁","菊","菡","菱","菲","萌","萍","萝","营","萧","萨","萱","葛","葵","葶","蒙","蓉","蓓","蓝","蕊","蕙","蕴","蕾","薇","藏","虎","虑","虞","虹","蛟","蜜","蝶","融","行","衍","街","衙","衷","袁","裕","裳","裴","西","见","观","规","觅","视","觉","解","言","詹","誉","誓","讪","记","讷","论","识","诗","诚","话","询","诣","诩","语","诺","谅","谈","谊","谏","谐","谦","谨","谷","豆","豪","豫","贝","贞","财","责","贤","质","贯","贵","贸","费","贾","资","赏","赢","赤","赴","起","超","越","趣","跃","路","轩","辅","辉","辑","辰","达","迁","迅","迈","迎","运","近","进","远","迪","适","逊","通","逢","逸","道","遥","邑","邦","邹","邻","都","酌","酩","醇","采","释","里","重","野","量","金","鉴","鑫","针","钏","钟","钦","钧","钰","钱","铁","铃","铜","铭","银","锋","锐","锡","锦","锻","镇","镜","长","问","闲","闵","闺","闻","阅","阔","阡","阳","阿","际","陌","限","险","陵","隆","随","雁","雄","雅","集","雍","雨","雪","雯","雷","霄","震","霎","霏","霓","霖","霜","霞","露","青","靓","靖","静","非","革","韬","音","韵","韶","顷","顺","顾","颀","颇","颖","颜","风","飘","飞","饰","香","馥","馨","驰","驿","骄","高","鱼","鸣","鸥","鸿","鹏","鹤","鹰","麒","默","黛","鼎","齐","龄","龙"],"surnames":["王","李","张","刘","陈","杨","黄","赵","吴","周","徐","孙","马","朱","胡","郭","何","高","林","罗","郑","梁","谢","宋","唐","许","邓","冯","韩","曹","曾","彭","萧","蔡","潘","田","董","袁","余","叶","蒋","杜","苏","魏","程","吕","丁","沈","任","姚","卢","傅","钟","姜","崔","谭","廖","范","汪","陆","金","石","戴","贾","韦","夏","邱","方","侯","邹","熊","孟","秦","白","江","阎","薛","尹","段","雷"],"compoundSurnames":["欧阳","司马","上官","诸葛","东方","皇甫","尉迟","公孙","慕容","长孙","宇文","司徒","司空","端木","南宫","夏侯"],"enSurnames":["smith","johnson","williams","brown","jones","garcia","miller","davis","rodriguez","martinez","hernandez","lopez","gonzalez","wilson","anderson","thomas","taylor","moore","jackson","martin","lee","perez","thompson","white","harris","sanchez","clark","ramirez","lewis","robinson","walker","young","allen","king","wright","scott","torres","nguyen","hill","flores","green","adams","nelson","baker","hall","rivera","campbell","mitchell","carter","roberts","wang","li","zhang","liu","chen","yang","huang","zhao","wu","zhou","xu","sun","ma","zhu","hu","guo","he","gao","lin","luo","zheng","liang","xie","song","tang","deng","feng","han","cao","zeng","peng","xiao","cai","pan","tian","dong","yuan","yu","ye","jiang","du","su","wei","cheng","lv","ding","shen","ren","yao","lu","fu","zhong","cui","tan","liao","fan","jin","qian","shu","meng"],"blockBigrams":["方面","方向","方案","方法","方程","程度","工程","成功","成果","白天","明白","明天","昨天","今日","去年","今年","每月","每天","马路","马上","马桶","马车","马力","云龙","云飞","毛巾","毛病","老虎","兔子","猴子","狮子","车子","桌子","房子","叶子","花生","水果","米饭","面粉","战争","战士","武力","日记","日期","时候","时间","钟表","钟声","唐山","武汉","成都","南京","北京","上海","广州","长江","黄河","白色","百事","百姓","百分","百年","千万","万一","问题","风机","闪电","雷鸣","雷达","雪山","雷区","范围","章程","于是","何况","何时","姓王","余下","段落","台阶","任务","任命","任何","主任","何塞","何礼","余部","余座","夏代","夏季","宋代","唐初","唐朝","明朝","元朝","汉朝","民国","唐代","古代","现代","当代","近代","上代","下代","千代","万代","迭代","存款","存量","定向","定期","定点","定位","定时","定量","定性","定律","定额","定价","定制","定义","定理","任制","任嚣","余米","余艘","叶城","叶林","卢山","卢曼","尹力","崔杏","任中共","任中国"]}
+  }
+
+  // ---- pinyin-dict.json ----
+  __modules["pinyin-dict"] = function (module) {
+    module.exports = {"syllables":["a","ai","an","ang","ao","ba","bai","ban","bang","bao","bei","ben","beng","bi","bian","biang","biao","bie","bin","bing","bo","bong","bu","ca","cai","can","cang","cao","ce","cei","cen","ceng","cha","chai","chan","chang","chao","che","chen","cheng","chi","chong","chou","chu","chua","chuai","chuan","chuang","chui","chun","chuo","ci","cong","cou","cu","cuan","cui","cun","cuo","da","dai","dan","dang","dao","de","dei","den","deng","di","dia","dian","diao","die","din","ding","diu","dong","dou","du","duan","dui","dun","duo","e","ei","en","eng","er","fa","fan","fang","fei","fen","feng","fiao","fo","fou","fu","ga","gai","gan","gang","gao","ge","gei","gen","geng","gong","gou","gu","gua","guai","guan","guang","gui","gun","guo","ha","hai","han","hang","hao","he","hei","hen","heng","hm","hng","hong","hou","hu","hua","huai","huan","huang","hui","hun","huo","ji","jia","jian","jiang","jiao","jie","jin","jing","jiong","jiu","ju","juan","jue","jun","ka","kai","kan","kang","kao","ke","kei","ken","keng","kong","kou","ku","kua","kuai","kuan","kuang","kui","kun","kuo","la","lai","lan","lang","lao","le","lei","len","leng","li","lia","lian","liang","liao","lie","lin","ling","liu","lo","long","lou","lu","luan","lun","luo","lv","lve","ma","mai","man","mang","mao","me","mei","men","meng","mi","mian","miao","mie","min","ming","miu","mo","mou","mu","n","na","nai","nan","nang","nao","ne","nei","nen","neng","ng","ni","nia","nian","niang","niao","nie","nin","ning","niu","nong","nou","nu","nuan","nun","nuo","nv","nve","o","ou","pa","pai","pan","pang","pao","pei","pen","peng","pi","pian","piao","pie","pin","ping","po","pou","pu","qi","qia","qian","qiang","qiao","qie","qin","qing","qiong","qiu","qu","quan","que","qun","ran","rang","rao","re","ren","reng","ri","rong","rou","ru","rua","ruan","rui","run","ruo","sa","sai","san","sang","sao","se","sen","seng","sha","shai","shan","shang","shao","she","shei","shen","sheng","shi","shou","shu","shua","shuai","shuan","shuang","shui","shun","shuo","si","song","sou","su","suan","sui","sun","suo","ta","tai","tan","tang","tao","te","tei","teng","ti","tian","tiao","tie","ting","tong","tou","tu","tuan","tui","tun","tuo","wa","wai","wan","wang","wei","wen","weng","wo","wong","wu","xi","xia","xian","xiang","xiao","xie","xin","xing","xiong","xiu","xu","xuan","xue","xun","ya","yan","yang","yao","ye","yi","yin","ying","yo","yong","you","yu","yuan","yue","yun","za","zai","zan","zang","zao","ze","zei","zen","zeng","zha","zhai","zhan","zhang","zhao","zhe","zhei","zhen","zheng","zhi","zhong","zhou","zhu","zhua","zhuai","zhuan","zhuang","zhui","zhun","zhuo","zi","zong","zou","zu","zuan","zui","zun","zuo"],"surnames":["bai","cai","cao","ceng","chen","cheng","cui","dai","deng","ding","dong","dongfang","du","duan","duanmu","fan","fang","feng","fu","gao","gongsun","guo","han","he","hou","hu","huang","huangfu","jia","jiang","jin","lei","li","liang","liao","lin","liu","lu","luo","lv","ma","meng","murong","nangong","ouyang","pan","peng","qin","qiu","ren","shangguan","shen","shi","sikong","sima","situ","song","su","sun","tan","tang","tian","wang","wei","wu","xia","xiahou","xiao","xie","xiong","xu","xue","yan","yang","yao","ye","yin","yu","yuan","yuchi","yuwen","zhang","zhangsun","zhao","zheng","zhong","zhou","zhu","zhuge","zou"],"compoundSurnames":["dongfang","duanmu","gongsun","huangfu","murong","nangong","ouyang","shangguan","sikong","sima","situ","xiahou","yuchi","yuwen","zhangsun","zhuge"],"blockWords":["cuisine","dubai","dude","duke","during","fuji","funding","fusion","future","hansen","heading","healing","hearing","heating","helen","helena","here","heritage","house","housing","huge","human","leisure","licence","license","licensing","like","lime","limitation","limiting","linda","line","lion","lisa","lite","litigation","lucia","luke","machine","made","magazine","make","male","mali","maria","marie","marijuana","marina","marine","mario","marion","maritime","mate","mating","mature","maximize","panama","rendering","reno","shine","subaru","sudan","sunrise","sunshine","sure","susan","suse","yemen"],"stats":{"syllables":424,"surnames":90,"compoundSurnames":16,"blockWords":68,"engWordsScanned":9884,"engWordsSource":"eng_words.txt"}}
   }
 
   // 暴露到全局

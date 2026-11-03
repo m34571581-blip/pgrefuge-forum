@@ -276,9 +276,73 @@ const CONFIRMED = [
     '同名多处只确认第 0 处']
 ]
 
+// N. 【本轮新增】拼音姓名 —— 连写与「姓在前」两种形态
+//
+//    用户实测缺口：`i hate wangjunkai` 完全检测不到。
+//
+//    根因：b1~b6 与 L2d 都要求「空格分隔的名 + 姓」结构，
+//    而中文人名写成拼音时最常见的形态恰恰是**连写**（wangjunkai），
+//    以及**姓在前**的带空格形态（Wang Junkai）。
+//    这两种形态对原有规则完全不可见 —— 是静默漏检。
+//
+//    判据（四层合取，见 pinyin-detector.js）：
+//      姓氏锚点 + 音节可切分 + 非英文常用词 + 长度 ≥ 4
+//
+//    有指人线索 → 自动脱敏；无线索 → 告警。
+const POS_PINYIN_NAME = [
+  ['i hate wangjunkai', 'i hate Someone', '连写全名 + 动作线索'],
+  ['my roommate wangjunkai', 'my roommate Someone', '连写全名 + 关系线索'],
+  ['I hate Wang Junkai', 'I hate Someone', '姓在前带空格 + 动作线索'],
+  ['Wang Junkai is my advisor', 'Someone is my advisor', '姓在前 + 关系线索'],
+  ['i hate liuxiaodong', 'i hate Someone', '三字连写全名'],
+  ['i hate zhangsan', 'i hate Someone', '姓 + 单字名'],
+  ['i hate xiaoming', 'i hate Someone', '姓 + 双字名'],
+  ['he called wangjun to discuss', 'he called Someone to discuss', '连写双字名'],
+  ['thanks wangjunkai for the help', 'thanks Someone for the help', '连写 + 感谢线索'],
+  ['my advisor wangjunkai is strict', 'my advisor Someone is strict', '连写 + 关系线索']
+]
+
+// P. 拼音姓名的负样本 —— 英文普通词与地名绝不能被误判
+//
+//    这些是最危险的误伤源：形态与拼音姓名高度同形。
+//    判据第 3 层（英文常用词排除表）就是为挡住它们而存在。
+const NEG_PINYIN_NAME = [
+  ['i hate make', 'i hate make', 'make 可切成 ma|ke'],
+  ['i hate like', 'i hate like', 'like 可切成 li|ke'],
+  ['i hate here', 'i hate here', 'here 可切成 he|re'],
+  ['i hate human', 'i hate human', 'human 可切成 hu|man'],
+  ['i hate magazine', 'i hate magazine', 'magazine 可切成 ma|ga|zi|ne'],
+  ['i hate sunshine', 'i hate sunshine', 'sunshine 可切成 sun|shi|ne'],
+  ['i hate machine', 'i hate machine', 'machine 可切成 ma|chi|ne'],
+  ['i hate license', 'i hate license', 'license 可切成 li|cen|se'],
+  ['i hate new york', 'i hate new york', '地名'],
+  ['i hate shanghai', 'i hate shanghai', '地名'],
+  ['i hate beijing', 'i hate beijing', '地名'],
+  ['i hate nanjing', 'i hate nanjing', '地名'],
+  ['i hate hong kong', 'i hate hong kong', '地名'],
+  ['i hate san francisco', 'i hate san francisco', '地名'],
+  ['i hate helen', 'i hate helen', '英文人名，非中文拼音'],
+  ['i hate manager', 'i hate manager', 'manager 不可切分'],
+  ['i hate hello', 'i hate hello', 'hello 不可切分'],
+  ['i hate student', 'i hate student', 'student 不可切分']
+]
+
+// Q. 拼音姓名的 L3 告警 —— 形态成立但无线索
+//
+//    孤零零一个拼音名，引擎拿不准它是人名还是别的什么。
+//    与中文姓名层同构：不自动替换，但必须告警 ——
+//    用户点名要脱敏这类内容，宁可多提醒一次。
+const SUSPECT_PINYIN_NAME = [
+  ['wangjunkai', 'alert', '连写全名，无上下文', 'wangjunkai'],
+  ['Wang Junkai', 'alert', '姓在前，无上下文', 'Wang Junkai'],
+  ['wangjunkai 走了', 'alert', '连写全名，后接动词无线索', 'wangjunkai'],
+  ['给 wangjunkai 发邮件', 'alert', '连写全名，中文语境', 'wangjunkai']
+]
+
 module.exports = {
   POS_ORG, POS_CN_PERSON, POS_EN_PERSON,
   POS_EN_CASE, POS_CN_BARE, POS_IDENTIFIER,
   NEG_LOOKS_LIKE_NAME, NEG_GENERIC, NEG_EN, NEG_IDENTIFIER,
-  SUSPECT_INSTITUTION, SUSPECT_EN_NAME, CONFIRMED
+  SUSPECT_INSTITUTION, SUSPECT_EN_NAME, CONFIRMED,
+  POS_PINYIN_NAME, NEG_PINYIN_NAME, SUSPECT_PINYIN_NAME
 }
