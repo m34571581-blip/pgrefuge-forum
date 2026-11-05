@@ -170,6 +170,63 @@
   .composer-note.ok { color: var(--green); }
   .composer-note.warn { color: var(--yellow); font-weight: 600; }
 
+  /* ---------- GitHub 绑定与一键发布 ---------- */
+  .gh-panel {
+    margin-top: 18px; padding: 16px 18px;
+    background: var(--card); border: 1px solid var(--line); border-radius: 12px;
+  }
+  .gh-panel.bound { border-color: var(--green); background: rgba(181,196,177,.14); }
+  .gh-head {
+    display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+    font-size: 13px; color: var(--soft);
+  }
+  .gh-head b { color: var(--ink); font-weight: 600; font-size: 14px; }
+  .gh-avatar {
+    width: 22px; height: 22px; border-radius: 50%;
+    border: 1px solid var(--line); vertical-align: middle;
+  }
+  .gh-spacer { flex: 1; }
+  .gh-btn {
+    padding: 6px 13px; border-radius: 8px; font-size: 13px; cursor: pointer;
+    border: 1px solid var(--ink); background: var(--ink); color: var(--paper);
+    font-family: inherit; text-decoration: none; display: inline-block;
+  }
+  .gh-btn.ghost { background: transparent; color: var(--ink); }
+  .gh-btn.ghost:hover { background: var(--paper); }
+  .gh-btn:disabled { opacity: .4; cursor: default; }
+  .gh-form { margin-top: 14px; }
+  .gh-form label {
+    display: block; font-size: 12px; color: var(--soft); margin-bottom: 6px;
+  }
+  .gh-form input {
+    width: 100%; padding: 10px 12px; font-size: 13px; font-family: inherit;
+    border: 1px solid var(--line); border-radius: 8px;
+    background: var(--paper); color: var(--ink);
+  }
+  .gh-form input:focus { outline: none; border-color: var(--accent); }
+  .gh-form .gh-hint {
+    margin-top: 8px; font-size: 12px; color: var(--soft); line-height: 1.7;
+  }
+  .gh-form .gh-hint a { color: var(--accent); }
+  .gh-form .gh-hint ol { margin: 6px 0 0 18px; }
+  .gh-msg {
+    margin-top: 10px; font-size: 12px; min-height: 16px; color: var(--soft);
+  }
+  .gh-msg.err { color: #A8564E; font-weight: 600; }
+  .gh-msg.ok { color: var(--ok); }
+  .gh-code {
+    display: inline-block; font-family: ui-monospace, Menlo, Consolas, monospace;
+    font-size: 20px; letter-spacing: .16em; padding: 6px 12px;
+    background: var(--paper); border: 1px solid var(--accent); border-radius: 8px;
+    color: var(--ink); margin: 4px 0;
+  }
+  .gh-title-input {
+    width: 100%; padding: 10px 12px; font-size: 14px; font-family: inherit;
+    border: 1px solid var(--line); border-radius: 8px;
+    background: var(--paper); color: var(--ink); margin-top: 12px;
+  }
+  .gh-title-input:focus { outline: none; border-color: var(--accent); }
+
   .post {
     background: var(--paper); border: 1px solid var(--line); border-radius: 12px;
     padding: 18px 20px; margin-bottom: 14px; cursor: pointer; transition: border-color .15s;
@@ -301,6 +358,51 @@
       <a class="btn-goto" id="newPost" href="#" target="_blank" rel="noopener">去 GitHub 发帖 →</a>
     </div>
     <div class="composer-note" id="copyNote"></div>
+
+    <!-- GitHub 绑定与一键发布 -->
+    <div class="gh-panel" id="ghPanel">
+      <div class="gh-head">
+        <b>绑定 GitHub 账号</b>
+        <span id="ghState">绑定后可以一键把脱敏后的内容发布为讨论主题</span>
+        <span class="gh-spacer"></span>
+        <button type="button" class="gh-btn ghost" id="ghBindBtn">绑定账号</button>
+        <button type="button" class="gh-btn ghost" id="ghUnbindBtn" hidden>解绑</button>
+      </div>
+
+      <div class="gh-form" id="ghForm" hidden>
+        <label for="ghToken">粘贴 GitHub 访问令牌</label>
+        <input type="password" id="ghToken" placeholder="github_pat_… 或 ghp_…" autocomplete="off" spellcheck="false">
+        <div class="gh-hint">
+          令牌只保存在<b>当前页面的内存</b>里，刷新即失效，不会写入浏览器存储。<br>
+          生成方式：GitHub → 右上角头像 → Settings → Developer settings →
+          Personal access tokens → Fine-grained tokens → Generate new token，
+          然后只勾选：
+          <ol>
+            <li><b>Repository access</b> 选 <b>Only select repositories</b>，只选 PGrefuge 论坛仓库</li>
+            <li><b>Repository permissions → Discussions</b> 选 <b>Read and write</b></li>
+            <li>其余权限一项都不要勾</li>
+          </ol>
+          这样这个令牌只能给论坛发讨论，读不了你的其他仓库。
+        </div>
+        <div class="gh-form" style="margin-top:14px">
+          <button type="button" class="gh-btn" id="ghBindSubmit">绑定</button>
+          <button type="button" class="gh-btn ghost" id="ghBindCancel">取消</button>
+        </div>
+      </div>
+
+      <div class="gh-msg" id="ghMsg"></div>
+
+      <!-- 绑定成功后的发布区 -->
+      <div id="ghPublishBox" hidden>
+        <input type="text" class="gh-title-input" id="ghTitle" placeholder="标题，比如：研三被延毕 [压榨]">
+        <div class="composer-actions">
+          <button type="button" class="btn-copy" id="ghPublishBtn">一键发布到 Discussions</button>
+        </div>
+        <div class="gh-hint" style="margin-top:8px">
+          发布的将是<b>脱敏后的内容</b> —— GitHub 上从一开始就只有脱敏版，不存在明文窗口。
+        </div>
+      </div>
+    </div>
   </div>
 
   <div class="tabs">
@@ -326,6 +428,8 @@
 
 <script src="config.js"></script>
 <script src="desensitize.js"></script>
+<script src="github-client.js"></script>
+<script src="github-bind.js"></script>
 <script>
 (function () {
   const CFG = window.PG_CONFIG || {}
@@ -521,6 +625,223 @@
     if (pos < text.length) frag.appendChild(document.createTextNode(text.slice(pos)))
     textEl.textContent = ''
     textEl.appendChild(frag)
+  }
+
+  // ================================================================
+  //  GitHub 绑定与一键发布
+  // ================================================================
+  //
+  // 三条安全约束贯穿整个实现：
+  //
+  // 1. 令牌只存内存
+  //    不写 localStorage / sessionStorage。刷新即失效。
+  //    理由：本站会渲染用户提交的第三方内容（帖子正文），
+  //    那是潜在的 XSS 注入面 —— 注入成功的脚本能读走
+  //    localStorage 里的长期令牌。放内存里，这个风险窗口
+  //    从「永久」缩到「当前会话」。
+  //
+  // 2. 发布的永远是脱敏后的内容
+  //    不是原文。同步管道虽然也会把脱敏版覆写回 GitHub，
+  //    但那要等最多 30 分钟 —— 中间是明文窗口。
+  //    一键发布直接发脱敏版，窗口不存在。
+  //
+  // 3. 前端不自己写脱敏逻辑
+  //    发布内容由同一个引擎算出，含用户确认过的片段。
+  //    不复制一份规则 —— 否则浏览器端和同步管道会漂移。
+
+  const GH_CLIENT = window.PGGitHub
+  const GH_BIND = window.PGGitHubBind
+  let ghBound = null
+
+  function initGitHub () {
+    const bindBtn = document.getElementById('ghBindBtn')
+    if (!bindBtn || !GH_CLIENT || !GH_BIND) return
+
+    const form = document.getElementById('ghForm')
+    const tokenInput = document.getElementById('ghToken')
+    const submitBtn = document.getElementById('ghBindSubmit')
+    const cancelBtn = document.getElementById('ghBindCancel')
+    const msgEl = document.getElementById('ghMsg')
+    const stateEl = document.getElementById('ghState')
+    const panel = document.getElementById('ghPanel')
+    const unbindBtn = document.getElementById('ghUnbindBtn')
+    const publishBox = document.getElementById('ghPublishBox')
+    const publishBtn = document.getElementById('ghPublishBtn')
+    const titleInput = document.getElementById('ghTitle')
+
+    function setMsg (text, kind) {
+      msgEl.textContent = text
+      msgEl.className = 'gh-msg' + (kind ? ' ' + kind : '')
+    }
+
+    // ---- 绑定状态渲染 ----
+    function renderBound (info) {
+      ghBound = info
+      panel.classList.add('bound')
+      unbindBtn.hidden = false
+      bindBtn.hidden = true
+      form.hidden = true
+      publishBox.hidden = false
+
+      const permText = info.canPost === false
+        ? '（当前账号对该仓库只有只读权限，可能无法发帖）'
+        : ''
+      stateEl.innerHTML = ''
+      const img = document.createElement('img')
+      img.className = 'gh-avatar'
+      img.src = info.avatarUrl
+      img.alt = ''
+      stateEl.appendChild(img)
+      stateEl.appendChild(document.createTextNode(
+        '已绑定 ' + info.login + ' · 发帖到 ' + info.categoryName + ' 分类' + permText
+      ))
+      setMsg('绑定成功。发布的内容会自动脱敏后再提交。', 'ok')
+    }
+
+    function renderUnbound () {
+      ghBound = null
+      panel.classList.remove('bound')
+      unbindBtn.hidden = true
+      bindBtn.hidden = false
+      publishBox.hidden = true
+      stateEl.textContent = '绑定后可以一键把脱敏后的内容发布为讨论主题'
+    }
+
+    GH_BIND.setHandlers({
+      onBound: renderBound,
+      onUnbound: function () {
+        renderUnbound()
+        setMsg('已解绑，令牌已从内存清除。')
+      }
+    })
+
+    // ---- 打开/关闭绑定表单 ----
+    bindBtn.addEventListener('click', function () {
+      form.hidden = false
+      bindBtn.hidden = true
+      setMsg('')
+      tokenInput.focus()
+    })
+    cancelBtn.addEventListener('click', function () {
+      form.hidden = true
+      bindBtn.hidden = false
+      tokenInput.value = ''
+      setMsg('')
+    })
+
+    // ---- 提交绑定 ----
+    submitBtn.addEventListener('click', function () {
+      const token = tokenInput.value.trim()
+      if (!token) {
+        setMsg('请先粘贴 GitHub 令牌', 'err')
+        return
+      }
+      submitBtn.disabled = true
+      setMsg('正在验证令牌…')
+
+      const owner = REPO.split('/')[0]
+      const repo = REPO.split('/')[1]
+
+      GH_BIND.bindWithToken(token, { owner: owner, repo: repo, category: CATEGORY })
+        .then(function (info) {
+          tokenInput.value = ''   // 不留在 DOM 里
+          renderBound(info)
+        })
+        .catch(function (e) {
+          setMsg(GH_CLIENT.explainError(e), 'err')
+        })
+        .finally(function () {
+          submitBtn.disabled = false
+        })
+    })
+
+    // ---- 解绑 ----
+    unbindBtn.addEventListener('click', function () {
+      GH_BIND.unbind()
+    })
+
+    // ---- 一键发布 ----
+    publishBtn.addEventListener('click', function () {
+      const draft = document.getElementById('draft')
+      const raw = (draft.value || '').trim()
+      if (!raw) {
+        setMsg('请先写下你的经历', 'err')
+        return
+      }
+      const title = (titleInput.value || '').trim()
+      if (!title) {
+        setMsg('请填写标题，格式建议：你的处境 [压榨]', 'err')
+        titleInput.focus()
+        return
+      }
+
+      publishBtn.disabled = true
+      setMsg('正在脱敏并发布…')
+
+      // ---- 关键：发布出去的必须是「彻底脱敏」的内容 ----
+      //
+      // 引擎的 L3 层会把「形态可疑但线索不足」的片段列进疑似清单，
+      // 但**不自动替换** —— 因为误伤代价高，留在预览里让用户自己判断。
+      //
+      // 但「发布」是**不可逆的公开动作**：
+      //   预览里留着「清华」「wangjunkai」让你决定，
+      //   一旦发到 GitHub，全世界都看到了，而且原文会留在公开仓库里。
+      //
+      // 所以发布时必须做**加严处理**：把所有疑似项一并脱敏。
+      // 这不是改变引擎的策略（预览仍然保持「不误伤」），
+      // 而是发布这个动作本身的语义决定了它必须更保守。
+      //
+      // 用户已经点过确认的片段本来就要脱敏；
+      // 剩下的疑似片段在发布这一步统一脱敏，
+      // 并在结果里告诉用户遮掉了什么 —— 不静默处理。
+      const confirmedItems = confirmedList()
+      const preResult = DES.desensitize(raw, { confirmed: confirmedItems })
+      const extraMasked = (preResult.suspected || []).map(function (s) {
+        return { text: s.text, nth: s.nth || 0 }
+      })
+
+      // 把疑似项也加进 confirmed —— 引擎会强制脱敏它们
+      const finalConfirmed = confirmedItems.concat(extraMasked)
+      const body = DES.desensitize(raw, { confirmed: finalConfirmed }).content
+      const safeTitle = DES.desensitize(title).content
+
+      GH_CLIENT.createDiscussion(GH_CLIENT.getToken(), {
+        title: safeTitle,
+        body: body,
+        repositoryId: ghBound.repositoryId,
+        categoryId: ghBound.categoryId
+      })
+        .then(function (res) {
+          msgEl.innerHTML = ''
+          const a = document.createElement('a')
+          a.href = res.url
+          a.target = '_blank'
+          a.rel = 'noopener'
+          a.textContent = '已发布：' + res.url
+          msgEl.appendChild(a)
+          msgEl.className = 'gh-msg ok'
+          // 告知额外遮掉了什么 —— 不静默处理
+          if (extraMasked.length) {
+            const names = extraMasked.map(function (s) { return s.text })
+            const tip = document.createElement('div')
+            tip.style.marginTop = '4px'
+            tip.textContent = '另已自动脱敏 ' + names.length + ' 处疑似内容：' +
+              names.join('、') + '（如不想遮，可在预览里调整后重新发布）'
+            msgEl.appendChild(tip)
+          }
+          // 发布后清空草稿，避免重复发帖
+          draft.value = ''
+          confirmed.clear()
+          renderPreview()
+          titleInput.value = ''
+        })
+        .catch(function (e) {
+          setMsg(GH_CLIENT.explainError(e), 'err')
+        })
+        .finally(function () {
+          publishBtn.disabled = false
+        })
+    })
   }
 
   function initComposer() {
@@ -774,6 +1095,7 @@
   // 发布前脱敏预览的初始化放在最外层 ——
   // 它不依赖数据是否加载成功，即使 posts.json 拉不到，预览也照样能用。
   initComposer()
+  initGitHub()
 })()
 </script>
 </body>
