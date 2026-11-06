@@ -5,26 +5,44 @@
  *
  * 两种取令牌的方式
  * ----------------
- * A. PAT 粘贴（当前可用，零服务端）
- *    用户在 GitHub 设置页生成一个 fine-grained PAT，
- *    只勾 Discussions: Read and write 且限定 PGrefuge 这一个仓库，
- *    粘贴到站点输入框。
+ * A. Device Flow（顺畅，推荐）
+ *    点按钮 → 显示 8 位码 + 授权链接 → 用户在 GitHub 点 Authorize
+ *    → 页面自动跳回 → 绑定完成。用户只点 2 次。
  *
- * B. Device Flow 中转（待服务端就绪）
- *    点按钮 → 显示 8 位码 → 去 github.com/login/device 输入 → 自动完成。
- *    需要一个能持有 GitHub client_secret 的服务端做 token 交换
- *    （实测 GitHub 的 OAuth 端点无 CORS 头，浏览器无法直连）。
+ * B. PAT 粘贴（兜底，零服务端）
+ *    用户在 GitHub 设置页生成 fine-grained PAT，粘贴到站点。
+ *    中转没配 / 挂了 / GitHub 改策略时用这个。
  *
- * 设计上把两者抽象成同一个接口 `acquireToken()`，
- * 这样服务端就绪时只需换掉实现，UI 与发帖逻辑完全不用动。
+ * 两种方式抽象成同一个入口 `bind()`，UI 与发帖逻辑不受影响。
  *
- * 关于 client_id
- * -------------
- * client_id 是**公开标识符**，不是密钥，可以放在前端。
- * client_secret 才是密钥 —— 它绝不能进前端代码。
- * 所以 Device Flow 的中转服务只需要 client_id 之外的东西：
- * 实际上换 token 时 OAuth App 的 token 端点需要 client_secret，
- * 因此中转服务必须持有 secret。这正是 B 方案需要服务端的原因。
+ * 为什么必须有中转（实测结论）
+ * --------------------------
+ *   api.github.com/graphql            → ACAO: *          ✅ 浏览器可直连
+ *   api.github.com REST               → ACAO: *          ✅ 浏览器可直连
+ *   github.com/login/device/code      → 无 ACAO 头        ❌ 浏览器被拦
+ *   github.com/login/oauth/access_token → 无 ACAO 头      ❌ 浏览器被拦
+ *   api.github.com 上没有 OAuth 端点（/login/device/code 等全 404）
+ *
+ *   所以：**用 token 发帖可以浏览器直连，换 token 必须服务端转发**。
+ *   这是 GitHub 的服务端策略，前端无法绕过。
+ *
+ * 关于 client_secret（实测）
+ * -------------------------
+ *   Web OAuth Flow 换 token：不带 secret → incorrect_client_credentials  ← 必须带
+ *   Device Flow  换 token：不带 secret → authorization_pending           ← 正常流程
+ *
+ *   官方文档原文：
+ *     "client_secret — Required unless the token was generated using the device flow"
+ *     "client_secret is not needed for the device flow."
+ *
+ *   所以选 Device Flow —— **中转服务不持有机密**，只转发两个 POST。
+ *
+ * 中转服务的形态（docs/github-relay-worker.js 有完整可部署源码）
+ * -----------------------------------------------------------
+ *   POST {relay}/device/code  → 转发到 github.com/login/device/code
+ *   POST {relay}/device/token → 转发到 github.com/login/oauth/access_token
+ *
+ *   无状态、不存储、不持有机密。
  */
 
 const GH = typeof window !== 'undefined' && window.PGGitHub
@@ -34,11 +52,28 @@ const GH = typeof window !== 'undefined' && window.PGGitHub
 /**
  * 中转服务地址
  *
- * 为空表示未配置 Device Flow —— 界面会自动隐藏该入口，
- * 只展示 PAT 粘贴方式。
- * 配置后填入形如 https://xxx.app.workbuddy.host 的地址。
+ * 为空 → 未配置 Device Flow → 只显示 PAT 粘贴方式。
+ * 配置后形如 https://pgrefuge-relay.workers.dev
+ *
+ * 刻意做成**函数**而不是模块加载时读常量：
+ *   config.js 是 <script src> 引入的，若本模块比它先执行，
+ *   加载时读到的会是 undefined。运行时读则永远拿到最新值。
  */
-const RELAY_BASE = (typeof window !== 'undefined' && window.PG_CONFIG && window.PG_CONFIG.oauthRelayBaseUrl) || ''
+function getRelayBase () {
+  const cfg = (typeof window !== 'undefined' && window.PG_CONFIG) || {}
+  return cfg.oauthRelayBaseUrl || ''
+}
+
+/**
+ * GitHub OAuth App 的 client_id
+ *
+ * 公开标识符，不是密钥，可以放在前端。
+ * 需要用户在 GitHub → Settings → Developer settings → OAuth Apps 注册后拿到。
+ */
+function getClientId () {
+  const cfg = (typeof window !== 'undefined' && window.PG_CONFIG) || {}
+  return cfg.githubOAuthClientId || ''
+}
 
 /** 绑定结果回调 */
 let onBound = null
@@ -51,19 +86,149 @@ function setHandlers (handlers) {
   onProgress = handlers.onProgress || null
 }
 
-function notifyProgress (stage, detail) {
-  if (onProgress) onProgress(stage, detail)
+function notifyProgress (stage, detail, extra) {
+  if (onProgress) onProgress(stage, detail, extra || null)
 }
 
 /**
- * 方式 A：粘贴 PAT
+ * Device Flow 是否可用
  *
- * @param {string} token
- * @param {object} cfg { repo, category }
- * @returns {Promise<object>} 绑定后的状态
+ * 三个条件缺一不可：中转地址、client_id 都在。
+ */
+function isDeviceFlowAvailable () {
+  return !!(getRelayBase() && getClientId())
+}
+
+/**
+ * 统一入口：绑定 GitHub 账号
+ *
+ * 优先 Device Flow（顺畅）；中转不可用时回落到 PAT 粘贴。
+ *
+ * @param {object} cfg { owner, repo, category }
+ * @param {object} [opts] { forceToken: true } 强制走 PAT 方式
+ * @returns {Promise<object>} 绑定信息
+ */
+async function bind (cfg, opts) {
+  const o = opts || {}
+  if (!o.forceToken && isDeviceFlowAvailable()) {
+    try {
+      return await bindWithDeviceFlow(cfg)
+    } catch (e) {
+      // 中转挂了不该让用户卡住 —— 落到 PAT 方式
+      notifyProgress('fallback', '快速绑定不可用：' + (e && e.message ? e.message : '未知原因'))
+      throw e
+    }
+  }
+  // 没配中转 → 提示 UI 走 PAT 路径
+  const e = new Error('未配置快速绑定服务，请改用粘贴令牌的方式')
+  e.code = 'no_relay'
+  throw e
+}
+
+/**
+ * 方式 A：Device Flow
+ *
+ * 流程：
+ *   1. POST {relay}/device/code  → 拿 user_code 与 verification_uri
+ *   2. 弹层显示 8 位码，用户点链接去 GitHub 授权
+ *   3. 轮询 POST {relay}/device/token 直到拿到 access_token
+ *
+ * 轮询必须遵守 RFC 8628：
+ *   - authorization_pending → 继续等
+ *   - slow_down             → 间隔 +5 秒（**必须遵守**，否则永远拿不到）
+ *   - expired_token         → 过期，重新发起
+ *   - access_denied         → 用户取消
+ */
+async function bindWithDeviceFlow (cfg) {
+  const relay = getRelayBase()
+  const clientId = getClientId()
+  if (!relay) throw new Error('未配置中转服务')
+  if (!clientId) throw new Error('未配置 GitHub OAuth App 的 client_id')
+
+  notifyProgress('device', '正在申请设备码…')
+  const dev = await postRelay('/device/code', {
+    client_id: clientId,
+    scope: 'public_repo'
+  })
+
+  if (!dev || !dev.device_code || !dev.user_code) {
+    throw new Error('中转服务返回了无效的设备码：' + JSON.stringify(dev).slice(0, 150))
+  }
+
+  // 把验证码交给 UI 显示，用户点链接去 GitHub 授权
+  notifyProgress('waiting', dev.user_code, {
+    userCode: dev.user_code,
+    verificationUri: dev.verification_uri || 'https://github.com/login/device',
+    expiresIn: dev.expires_in || 900,
+    interval: dev.interval || 5
+  })
+
+  const token = await pollForDeviceToken(dev)
+  notifyProgress('verify', '正在验证令牌…')
+  return finishBind(token, cfg)
+}
+
+/**
+ * 轮询设备码授权结果
+ */
+async function pollForDeviceToken (dev) {
+  let interval = (dev.interval || 5) * 1000
+  const deadline = Date.now() + ((dev.expires_in || 900) * 1000)
+
+  while (Date.now() < deadline) {
+    await sleep(interval)
+
+    let payload
+    try {
+      payload = await postRelay('/device/token', { device_code: dev.device_code })
+    } catch (e) {
+      // 网络抖动不该直接失败 —— 继续轮询
+      continue
+    }
+
+    if (payload && payload.access_token) return payload.access_token
+
+    const err = payload && payload.error
+    if (err === 'slow_down') {
+      // RFC 8628：必须把间隔加 5 秒，否则 GitHub 会持续限流
+      interval += 5000
+      continue
+    }
+    if (err === 'authorization_pending') continue
+    if (err === 'expired_token') throw new Error('授权码已过期，请重新发起绑定')
+    if (err === 'access_denied') throw new Error('你取消了授权')
+    if (err) throw new Error('授权失败：' + err)
+  }
+  throw new Error('授权超时，请重新发起绑定')
+}
+
+/**
+ * 方式 B：PAT 粘贴
+ *
+ * 令牌由 UI 直接传入 —— 不用「等待器」那套间接机制。
+ *
+ * 为什么要去掉等待器：
+ *   等待器（Promise + resolver）要求 UI 侧自己接 .then/.catch，
+ *   一旦 UI 忘了接，错误就静默丢失，用户看到的是「点了没反应」。
+ *   直接传 token + 返回 Promise，错误自然沿 Promise 链冒泡，
+ *   UI 只要 .catch 就能拿到 —— 没有可以漏的地方。
+ *
+ * @param {string} token 用户粘贴的令牌
+ * @param {object} cfg { owner, repo, category }
+ * @returns {Promise<object>} 绑定信息
  */
 async function bindWithToken (token, cfg) {
+  if (!token || typeof token !== 'string' || !token.trim()) {
+    throw new Error('请先粘贴 GitHub 令牌')
+  }
   notifyProgress('verify', '正在验证令牌…')
+  return finishBind(token.trim(), cfg)
+}
+
+/**
+ * 令牌拿到后的收尾：验证 + 读仓库元信息 + 查权限
+ */
+async function finishBind (token, cfg) {
   const user = await GH.verifyToken(token)
 
   notifyProgress('meta', '正在读取仓库与分类…')
@@ -88,80 +253,25 @@ async function bindWithToken (token, cfg) {
 }
 
 /**
- * 方式 B：Device Flow
- *
- * 需要中转服务端提供两个接口：
- *   POST {relay}/github/device/code   → { device_code, user_code, verification_uri, interval, expires_in }
- *   POST {relay}/github/device/token  → { access_token } 或 { error, interval }
- *
- * 中转服务持有 client_secret，浏览器全程拿不到 secret。
- *
- * @param {object} cfg
- * @returns {Promise<object>} 绑定后的状态
+ * 调用中转服务
  */
-async function bindWithDeviceFlow (cfg) {
-  if (!RELAY_BASE) {
-    throw new Error('Device Flow 尚未配置中转服务，请改用粘贴令牌的方式')
-  }
-
-  notifyProgress('device', '正在申请设备码…')
-  const devRes = await fetch(RELAY_BASE + '/github/device/code', {
+async function postRelay (path, body) {
+  const res = await fetch(getRelayBase() + path, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ scope: 'public_repo' })
+    body: JSON.stringify(body)
   })
-  if (!devRes.ok) {
-    const t = await devRes.text()
-    throw new Error('申请设备码失败（HTTP ' + devRes.status + '）：' + t.slice(0, 200))
+  const text = await res.text()
+  let payload
+  try {
+    payload = JSON.parse(text)
+  } catch (e) {
+    throw new Error('中转服务返回了非 JSON 内容（HTTP ' + res.status + '）：' + text.slice(0, 120))
   }
-  const dev = await devRes.json()
-
-  notifyProgress('waiting', dev.user_code, dev.verification_uri)
-
-  const token = await pollForDeviceToken(dev)
-
-  notifyProgress('verify', '正在验证令牌…')
-  return bindWithToken(token, cfg)
-}
-
-/**
- * 轮询设备码授权结果
- *
- * 必须遵守 RFC 8628 的 slow_down 规则：
- * 收到 slow_down 就把间隔加 5 秒 —— 忽略它会导致永远拿不到令牌。
- */
-async function pollForDeviceToken (dev) {
-  let interval = (dev.interval || 5) * 1000
-  const deadline = Date.now() + (dev.expires_in || 900) * 1000
-
-  while (Date.now() < deadline) {
-    await sleep(interval)
-
-    const res = await fetch(RELAY_BASE + '/github/device/token', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ device_code: dev.device_code })
-    })
-    const payload = await res.json().catch(function () { return {} })
-
-    if (payload.access_token) return payload.access_token
-
-    if (payload.error === 'slow_down') {
-      interval += 5000
-      continue
-    }
-    if (payload.error === 'authorization_pending') continue
-    if (payload.error === 'expired_token') {
-      throw new Error('授权码已过期，请重新发起绑定')
-    }
-    if (payload.error === 'access_denied') {
-      throw new Error('你取消了授权')
-    }
-    if (payload.error) {
-      throw new Error('授权失败：' + payload.error)
-    }
+  if (!res.ok && !payload.error) {
+    throw new Error('中转服务出错（HTTP ' + res.status + '）')
   }
-  throw new Error('授权超时，请重新发起绑定')
+  return payload
 }
 
 function sleep (ms) {
@@ -176,22 +286,16 @@ function unbind () {
   if (onUnbound) onUnbound()
 }
 
-function isDeviceFlowAvailable () {
-  return !!RELAY_BASE
-}
-
-function getRelayBase () {
-  return RELAY_BASE
-}
-
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = {
     setHandlers,
-    bindWithToken,
+    bind,
     bindWithDeviceFlow,
+    bindWithToken,
     unbind,
     isDeviceFlowAvailable,
-    getRelayBase
+    getRelayBase,
+    getClientId
   }
 }
 
@@ -199,10 +303,12 @@ if (typeof module !== 'undefined' && module.exports) {
 if (typeof window !== 'undefined') {
   window.PGGitHubBind = {
     setHandlers: setHandlers,
-    bindWithToken: bindWithToken,
+    bind: bind,
     bindWithDeviceFlow: bindWithDeviceFlow,
+    bindWithToken: bindWithToken,
     unbind: unbind,
     isDeviceFlowAvailable: isDeviceFlowAvailable,
-    getRelayBase: getRelayBase
+    getRelayBase: getRelayBase,
+    getClientId: getClientId
   }
 }

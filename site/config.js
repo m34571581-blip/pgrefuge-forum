@@ -29,5 +29,27 @@ window.PG_CONFIG = {
   category: 'experiences',
 
   // Discussions 分类 slug（拼 /discussions/new?category= 用）
-  categorySlug: 'experiences'
+  categorySlug: 'experiences',
+
+  // ---- GitHub 账号绑定（一键发布）----
+  //
+  // oauthRelayBaseUrl —— OAuth 中转服务地址
+  //
+  //   为什么需要它：实测 GitHub 的 OAuth 端点（github.com/login/*）
+  //   不返回 Access-Control-Allow-Origin，浏览器无法直连。
+  //   而 api.github.com 有 CORS，所以「用 token 发帖」能直连，
+  //   「换 token」必须由中转转发。
+  //
+  //   中转服务不持有机密 —— Device Flow 只需公开的 client_id。
+  //   完整可部署源码见 docs/github-relay-worker.js。
+  //
+  //   留空 → 站点自动降级为「粘贴令牌」方式。
+  oauthRelayBaseUrl: '',
+
+  // githubOAuthClientId —— GitHub OAuth App 的 Client ID
+  //
+  //   这是**公开标识符**，不是密钥，可以放在前端。
+  //   在 GitHub → Settings → Developer settings → OAuth Apps 注册后拿到，
+  //   注册时记得勾选 "Enable Device Flow"。
+  githubOAuthClientId: ''
 };

@@ -196,6 +196,7 @@ node scripts/sync.js --offline   # 用 data/.raw-cache.json
 | 限制 | 说明 |
 |---|---|
 | 发帖需 GitHub 账号 | GitHub Discussions 要求登录。giscus 模式的评论也需 OAuth 授权 |
+| 快速绑定需一个中转服务 | GitHub 的 OAuth 端点无 CORS 头，浏览器无法直连换 token。源码见 `docs/github-relay-worker.js`，部署步骤见 `docs/github-oauth-setup.md`。没部署时自动降级为「粘贴令牌」 |
 | 国内访问需代理 | GitHub 境外服务 |
 | 冷启动 | 社区产品的固有难题，需要种子内容与氛围运营 |
 | 研究院/研究所未覆盖 | 「研究生院」不在机构词表里，属于已知漏检 |

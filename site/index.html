@@ -226,6 +226,12 @@
     background: var(--paper); color: var(--ink); margin-top: 12px;
   }
   .gh-title-input:focus { outline: none; border-color: var(--accent); }
+  .gh-device-step {
+    font-size: 13px; color: var(--ink); font-weight: 600; margin-bottom: 8px;
+  }
+  .gh-device-step + .gh-hint { margin-top: 4px; }
+  .gh-device-step:not(:first-child) { margin-top: 16px; }
+  #ghDeviceWait { color: var(--soft); font-weight: 400; }
 
   .post {
     background: var(--paper); border: 1px solid var(--line); border-radius: 12px;
@@ -323,7 +329,8 @@
     <b>怎么发帖</b>
     <ol>
       <li>在下面写好你的经历，<b>先看脱敏预览</b> —— 敏感信息会被替换成「某校」「某老师」</li>
-      <li>点「复制脱敏结果」，再到 GitHub 新建讨论主题（分类选 <code>experiences</code>），把内容粘进去</li>
+      <li>点「<b>绑定 GitHub 账号</b>」完成授权（点两下就好），之后就能<b>一键发布</b>；
+        不想绑定也可以点「复制脱敏结果」，再到 GitHub 新建讨论主题（分类选 <code>experiences</code>）把内容粘进去</li>
       <li>标题写成 <code>你的处境 [压榨]</code>，标签可选：压榨 / PUA / 谩骂 / 人格污蔑 / Push / 其他</li>
       <li>正文第一行加一句 <code>&gt; 策略: reduce</code>，说明你想怎么应对：
         <code>avoid</code> 忍一忍 · <code>reduce</code> 硬刚回去 · <code>transfer</code> 找人帮忙 · <code>escape</code> 溜之大吉</li>
@@ -365,12 +372,32 @@
         <b>绑定 GitHub 账号</b>
         <span id="ghState">绑定后可以一键把脱敏后的内容发布为讨论主题</span>
         <span class="gh-spacer"></span>
-        <button type="button" class="gh-btn ghost" id="ghBindBtn">绑定账号</button>
+        <button type="button" class="gh-btn" id="ghBindBtn">一键绑定</button>
         <button type="button" class="gh-btn ghost" id="ghUnbindBtn" hidden>解绑</button>
       </div>
 
+      <!-- 设备码授权（Device Flow）：主路径，用户点 2 次完成 -->
+      <div id="ghDeviceBox" hidden>
+        <div class="gh-device-step">第 1 步 · 在 GitHub 上确认授权</div>
+        <div class="gh-code" id="ghUserCode">····-····</div>
+        <div class="gh-hint">
+          点下面的按钮打开 GitHub 授权页，粘贴（或输入）上面的验证码，
+          然后点 <b>Authorize</b>。授权完这个页面会自动完成绑定。
+        </div>
+        <div class="composer-actions">
+          <a class="gh-btn" id="ghDeviceLink" href="https://github.com/login/device" target="_blank" rel="noopener">
+            打开 GitHub 授权页 →
+          </a>
+          <button type="button" class="gh-btn ghost" id="ghDeviceCancel">取消</button>
+        </div>
+        <div class="gh-device-step" id="ghDeviceWait" style="margin-top:16px">
+          第 2 步 · 等待授权中…（可以关掉这个页面，完成后会自动跳回来）
+        </div>
+      </div>
+
+      <!-- PAT 粘贴：兜底路径 -->
       <div class="gh-form" id="ghForm" hidden>
-        <label for="ghToken">粘贴 GitHub 访问令牌</label>
+        <div class="gh-device-step">粘贴 GitHub 访问令牌</div>
         <input type="password" id="ghToken" placeholder="github_pat_… 或 ghp_…" autocomplete="off" spellcheck="false">
         <div class="gh-hint">
           令牌只保存在<b>当前页面的内存</b>里，刷新即失效，不会写入浏览器存储。<br>
@@ -668,10 +695,40 @@
     const publishBox = document.getElementById('ghPublishBox')
     const publishBtn = document.getElementById('ghPublishBtn')
     const titleInput = document.getElementById('ghTitle')
+    const deviceBox = document.getElementById('ghDeviceBox')
+    const userCodeEl = document.getElementById('ghUserCode')
+    const deviceLink = document.getElementById('ghDeviceLink')
+    const deviceCancelBtn = document.getElementById('ghDeviceCancel')
 
     function setMsg (text, kind) {
       msgEl.textContent = text
       msgEl.className = 'gh-msg' + (kind ? ' ' + kind : '')
+    }
+
+    /**
+     * 把「快速绑定」的错误翻译成人话
+     *
+     * 要和 GitHub API 的错误区分开 ——
+     * 快速绑定挂掉通常是**中转服务**的问题（Worker 超额、没部署、域名写错），
+     * 而 GitHub API 的错误是令牌/权限问题。
+     * 混在一起说「连不上 GitHub」会误导用户去查错方向。
+     */
+    function relayErrorText (e) {
+      const msg = (e && e.message) || '未知错误'
+      if (/failed to fetch|networkerror|load failed/i.test(msg)) {
+        return '连不上快速绑定服务（' + (GH_BIND.getRelayBase() || '未配置') + '）'
+      }
+      if (/未配置快速绑定|no_relay/i.test(msg)) {
+        return '快速绑定尚未配置'
+      }
+      if (/授权码已过期|授权超时/i.test(msg)) {
+        return msg
+      }
+      if (/取消了授权/i.test(msg)) {
+        return msg
+      }
+      // 其余按 GitHub 错误处理（可能是 token 已拿到但校验失败）
+      return GH_CLIENT.explainError(e)
     }
 
     // ---- 绑定状态渲染 ----
@@ -681,6 +738,7 @@
       unbindBtn.hidden = false
       bindBtn.hidden = true
       form.hidden = true
+      deviceBox.hidden = true
       publishBox.hidden = false
 
       const permText = info.canPost === false
@@ -703,6 +761,8 @@
       panel.classList.remove('bound')
       unbindBtn.hidden = true
       bindBtn.hidden = false
+      form.hidden = true
+      deviceBox.hidden = true
       publishBox.hidden = true
       stateEl.textContent = '绑定后可以一键把脱敏后的内容发布为讨论主题'
     }
@@ -712,24 +772,85 @@
       onUnbound: function () {
         renderUnbound()
         setMsg('已解绑，令牌已从内存清除。')
+      },
+      onProgress: function (stage, detail, extra) {
+        // Device Flow 的「等待授权」阶段要把验证码显示出来
+        if (stage === 'waiting' && extra) {
+          showDeviceCode(extra)
+          return
+        }
+        if (stage === 'fallback') {
+          // 中转不可用 → 落到 PAT 方式
+          deviceBox.hidden = true
+          form.hidden = false
+          setMsg(detail + ' —— 已切换到粘贴令牌的方式', 'err')
+          tokenInput.focus()
+          return
+        }
+        if (stage === 'device') setMsg(detail || '正在申请设备码…')
+        else if (stage === 'verify') setMsg(detail || '正在验证令牌…')
+        else if (stage === 'meta') setMsg(detail || '正在读取仓库信息…')
+        else if (stage === 'perm') setMsg(detail || '正在检查权限…')
       }
     })
 
-    // ---- 打开/关闭绑定表单 ----
+    // ---- 设备码弹层 ----
+    function showDeviceCode (info) {
+      deviceBox.hidden = false
+      form.hidden = true
+      userCodeEl.textContent = info.userCode || '····-····'
+      deviceLink.href = (info.verificationUri || 'https://github.com/login/device') +
+        '?user_code=' + encodeURIComponent(info.userCode || '')
+      // GitHub 的 /login/device 支持 ?user_code= 自动填码 ——
+      // 这样用户连验证码都不用手输，只有点 Authorize 一个动作。
+      setMsg('请在 GitHub 上完成授权，完成后这里会自动继续。')
+    }
+
+    // ---- 打开绑定 ----
     bindBtn.addEventListener('click', function () {
-      form.hidden = false
       bindBtn.hidden = true
       setMsg('')
-      tokenInput.focus()
+      const owner = REPO.split('/')[0]
+      const repo = REPO.split('/')[1]
+
+      if (GH_BIND.isDeviceFlowAvailable()) {
+        // 主路径：一键绑定（Device Flow）
+        deviceBox.hidden = false
+        userCodeEl.textContent = '····-····'
+        GH_BIND.bind({ owner: owner, repo: repo, category: CATEGORY })
+          .then(function (info) {
+            deviceBox.hidden = true
+            renderBound(info)
+          })
+          .catch(function (e) {
+            deviceBox.hidden = true
+            // 中转失败 → 自动降级到 PAT 方式，别让用户卡在这
+            form.hidden = false
+            setMsg(relayErrorText(e) + ' —— 可以改用粘贴令牌的方式', 'err')
+            tokenInput.focus()
+          })
+      } else {
+        // 兜底：没配置中转 → 直接给 PAT 表单
+        form.hidden = false
+        tokenInput.focus()
+      }
     })
+
     cancelBtn.addEventListener('click', function () {
       form.hidden = true
+      deviceBox.hidden = true
       bindBtn.hidden = false
       tokenInput.value = ''
       setMsg('')
     })
 
-    // ---- 提交绑定 ----
+    deviceCancelBtn.addEventListener('click', function () {
+      deviceBox.hidden = true
+      bindBtn.hidden = false
+      setMsg('')
+    })
+
+    // ---- 提交 PAT ----
     submitBtn.addEventListener('click', function () {
       const token = tokenInput.value.trim()
       if (!token) {
