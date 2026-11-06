@@ -54,12 +54,20 @@
  * 换 App 不用重新部署 Worker。
  */
 
-/** 允许访问的来源 —— 改成你自己的站点域名 */
-const ALLOWED_ORIGINS = [
-  'https://m34571581-blip.github.io',
-  'https://pgrefuge.app.workbuddy.host',
-  'http://localhost:8000'
-]
+/**
+ * 允许访问的来源
+ *
+ * 站点域名写在这里是为了防止第三方站点借用你的 Worker 去换 token ——
+ * Worker 是无状态的纯转发器，谁都能调就等于谁都能用它换 GitHub token。
+ *
+ * 想加域名（比如换了自己的论坛域名），改这里重新部署即可。
+ * 也可以用环境变量 ALLOWED_ORIGINS 覆盖（逗号分隔），免得每次都改代码。
+ */
+const ALLOWED_ORIGINS = (
+  // eslint-disable-next-line no-undef
+  (typeof ALLOWED_ORIGINS_ENV !== 'undefined' && ALLOWED_ORIGINS_ENV) ||
+  'https://m34571581-blip.github.io,https://pgrefuge.app.workbuddy.host,http://localhost:8000'
+).split(',').map(function (s) { return s.trim() }).filter(Boolean)
 
 /** 简单的内存限流：每 IP 每分钟最多 30 次 */
 const RATE_LIMIT = 30
@@ -95,8 +103,14 @@ export default {
     }
 
     // ---- 来源限制 ----
+    //
+    // 注意 `origin &&` 那个判断：**不能**因为没有 Origin 头就放行。
+    // 浏览器发起的 fetch 一定带 Origin；不带 Origin 的是脚本/curl，
+    // 那些不是我们要服务的对象 —— 而且它们可能来自任意来源。
+    //
+    // 所以规则是：**必须有 Origin，且必须在白名单里**。
     const origin = request.headers.get('Origin')
-    if (origin && !ALLOWED_ORIGINS.includes(origin)) {
+    if (!origin || !ALLOWED_ORIGINS.includes(origin)) {
       return json({ error: 'origin_not_allowed' }, 403, request)
     }
 
