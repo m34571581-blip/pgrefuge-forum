@@ -5,3 +5,6 @@ _shot-*.png
 data/.raw-cache.json
 _live.png
 _site/
+
+# wrangler 本地开发的临时状态（sqlite / bundle 等）
+.wrangler/
