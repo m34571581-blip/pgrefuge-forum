@@ -27,62 +27,68 @@ https://github.com/m34571581-blip/pgrefuge-forum
 
 ## 二、表单怎么选（重要）
 
-### 你的账户只有 6 个顶层类目
+### 官方权益表给出的答案
 
-`help.github.com/support/contact/product-selection`（已登录）显示：
+GitHub 官方《About GitHub Support》的权益表：
+
+| 计划 | GitHub Community | Standard support | Enterprise support | Premium support |
+|---|---|---|---|---|
+| **Free user** | ✓ | ✗ | ✗ | ✗ |
+| Pro / Team | ✓ | ✓ | ✗ | ✗ |
+| GHEC / GHES | ✓ | ✗ | ✓ | 可购买 |
+
+免费账户只有第一列 ✓。而同一篇文档紧接着写：
+
+> To report **account, security, and abuse issues**, or to receive assisted
+> support for a paid account, visit the support portal.
+
+也就是说 —— **免费账户能走的只有「社区讨论」和「账户/安全/滥用问题」两条**，
+「Standard support」那一整列（仓库功能、技术问题）对免费账户是关闭的。
+
+同一篇还有一条重要说明：
+
+> For security-related matters, all communication is handled in writing through
+> support tickets. This includes incident notifications, account compromise
+> investigations, and **credential exposure**.
+
+敏感数据暴露正属于这一类，**走工单受理，且只走书面**（不会回电）。
+
+### ❌ 「存储库功能」下的四个选项都不是
+
+你截图里的这一层（模板 / 版本 / 见解 / 分支）属于
+**Standard support 队列** —— 而那一列对免费账户是 ✗。
+所以：
+
+- 选哪个都会进入一个**对免费账户不开放的队列**，工单多半被自动关闭
+- 而且四个选项本身也都不匹配：
+  模板=Actions 模板、版本=Releases、见解=Insights、分支=分支管理
+
+### ✅ 唯一该走的路：顶层「登录问题」
+
+你的账户只有 6 个顶层类目：
 
 | 常用产品 | 情况 |
 |---|---|
-| Copilot / Codespaces / **仓库** | 教育版 / **登录问题** / 计费和付款 |
+| Copilot / Codespaces / 仓库 | 教育版 / **登录问题** / 计费和付款 |
 
-社区讨论 #209921 里那个和你情况**完全一样**的人（Standard 账户、
-同样找不到敏感数据清理选项、同样想保住仓库不删）看到的也是这六个。
-**没有「安全」类目，也没有「Something else」。**
+**「登录问题」**（Sign-in issues）就是免费账户通往
+**账户 / 安全 / 滥用**队列的入口 —— 它下面应该有「其他 / Other」
+或直接是描述框。
 
-### ⚠️ 已实测：「仓库」下的子项全是流程表单
+路径：
 
-「我们能提供什么帮助？」是**单选，选不同项则下面整个表单换掉**。
-你一路点下来会依次遇到：
+```
+product-selection  →  登录问题  →  （选「其他」或直接填描述）
+```
 
-| 子项 | 表单形态 | 能用吗 |
-|---|---|---|
-| 删除 | URL 输入 + 「请确认您的操作」 | ❌ 会真删仓库 |
-| 存储库功能 | 复选框：模板 / 版本 / 见解 / 分支 | ❌ 四个都不是我们的场景 |
-| Log request | 日志请求专用 | ❌ |
-| Remove LFS objects | LFS 专用 | ❌ 本仓库没用 LFS |
-| 邀请 / 迁移和锁定状态 / 恢复 / 转移 | 各自的操作流程 | ❌ |
+填完之后在描述里说明这实际是数据清理请求。
 
-**没有一个是带自由文本框的通用工单表单。**
+### 📌 靠 Subject + 正文第一句自我定性
 
-### ✅ 唯一走得通的路：登录问题
-
-顶层类目里的 **「登录问题」** —— 官方文档明确说明这是免费账户
-绕过付费限制的通道：
-
-> If your account uses GitHub Free, you can speak to GitHub users and staff
-> on the GitHub Community discussions for most issues, and **you can contact
-> GitHub Support to report account, security, and abuse issues.**
-
-中文版同一段：
-
-> 如果未看到此链接，你可以就大多数问题与 GitHub 用户和工作人员在 GitHub
-> 社区讨论交谈，**你仍然可以联系 GitHub 支持以报告帐户、安全和滥用问题**。
-
-「账户 / 安全 / 滥用」是 GitHub Support 对免费账户**唯一开放受理**的类别。
-敏感数据清理正属于这一类（官方《Removing sensitive data from a repository》
-就是让这类请求走 Support）。
-
-**「登录问题」下面通常有「其他 / Other」或直接是描述框**——
-选它，然后在描述里说明这实际是数据清理请求。
-
-### 📌 靠正文自我定性（免费账户没有下拉框）
-
-免费账户的表单里**没有**「Type of Issue」这类下拉框
+免费账户的表单里**没有**「Type of Issue」下拉框
 （官方文档源码里那个含 `removing sensitive data (commits, issues,
 pull requests, uploaded attachments)` 的选项被包在
 `{%- ifversion ghes or ghec %}` 里，只对 Enterprise/Cloud 开放）。
-
-所以 Subject + 正文第一句必须自己说明性质：
 
 Subject:
 ```
@@ -111,7 +117,11 @@ This is a sensitive-data removal request per the GitHub Docs page
 ```
 
 它**不能用来直达表单**，只能作为「登录时保留上下文」的提示。
-**结论：靠 flow 参数走不通，靠选对类目 + 选对子项才行。**
+
+
+```
+
+它**不能用来直达表单**，只能作为「登录时保留上下文」的提示。
 
 
 ## 三、Subject（标题栏）
@@ -344,22 +354,40 @@ GitHub 官方《Creating a support ticket》写着：
 
 ### 备选路径
 
-**1. GitHub Community Discussions** ⭐ 最靠谱的兜底
+**1. GitHub Community Discussions** ⭐ 免费账户唯一确定可行的路
 <https://github.com/orgs/community/discussions> → 发到 `Repositories` 分类下。
+
+按上面的权益表，免费账户**只有这一列是 ✓** —— 也就是说
+社区讨论对免费账户是官方认可的正式渠道，不是「凑合的替代品」。
 
 有 GitHub Community Manager 定期巡看并手工触发后台刷新。
 社区里确实有人靠这条路解决了同样的问题（有人发帖后，
 Community Manager 手工刷新了贡献者列表，贡献者图随即恢复）。
 
+现有讨论里可直接参考的先例：
+- #190183「How to trigger garbage collection?」—— 结论是
+  「You can't manually trigger GC on GitHub... Then you simply have to wait
+  because GC runs on GitHub's schedule」，但下面的回复补充了
+  「Contact GitHub Support... GitHub support does this manually for users
+  fairly regularly」
+- #209559「Unreachable commit」—— 明确指出
+  「Removal goes through GitHub Support... you contact Support and ask them to
+  clear cached views and run garbage collection on the repo」
+
 > ⚠️ 社区讨论是**公开**的 —— 那里**不要贴仓库名、用户名、任何 SHA**。
 > 只说「我已提交工单，工单号 XXX」。工单本身才是私密信道。
 >
 > 公开讨论里能安全说的内容：
-> - 结论层面的技术事实（GitHub 对不可达对象的处理机制、GC 是逐对象回收的）
-> - 你已经做了哪些清理动作（force push、删分支、删 tag）
+> - 结论层面的技术事实（GitHub 对不可达对象的处理机制、GC 是逐对象回收的、
+>   各端点回收进度不一致）
+> - 你已经做了哪些清理动作（force push、删分支重建、删 tag）
 > - 工单号
 >
 > 不能说的：仓库 URL、用户名、旧 SHA、First Changed Commit。
+
+**发帖时可以引用官方文档标题**来让 staff 快速定位：
+> Per GitHub Docs "Removing sensitive data from a repository", Support can
+> run a garbage collection on the server and remove cached views.
 
 **2. 回复确认邮件而不是重复开单**
 工单提交后会收到确认邮件。如果被自动关闭或长时间无回复，

@@ -290,13 +290,28 @@ GitHub 官方《Removing sensitive data from a repository》明确要求提供�
 
 **顶层选「登录问题」** —— 这是 fpt（免费/标准）账户唯一开放受理的队列。
 
-官方文档明确：
+**官方权益表**（About GitHub Support）：
 
-> If your account uses GitHub Free, you can speak to GitHub users and staff
-> on the GitHub Community discussions for most issues, and **you can contact
-> GitHub Support to report account, security, and abuse issues.**
+| 计划 | GitHub Community | Standard support | Enterprise support | Premium support |
+|---|---|---|---|---|
+| **Free user** | ✓ | ✗ | ✗ | ✗ |
+| Pro / Team | ✓ | ✓ | ✗ | ✗ |
 
-中文版：「你仍然可以联系 GitHub 支持以报告**帐户、安全和滥用问题**」。
+免费账户只有第一列 ✓。同一篇紧接着写：
+
+> To report **account, security, and abuse issues**, or to receive assisted
+> support for a paid account, visit the support portal.
+
+**「仓库」类目下的子项（模板/版本/见解/分支等）属于 Standard support 那一列
+—— 对免费账户是 ✗，工单多半被自动关闭。**
+
+另一条重要说明：
+> For security-related matters, all communication is handled in writing through
+> support tickets. This includes... **credential exposure**.
+
+即敏感数据暴露走工单受理，**且只走书面**（不会回电）。
+
+中文版同段：「你仍然可以联系 GitHub 支持以报告**帐户、安全和滥用问题**」。
 
 **「仓库」类目下的子项全是流程表单**（实测）：
 
@@ -371,6 +386,13 @@ GitHub 官方《Removing sensitive data from a repository》明确要求提供�
 1. **GitHub Community Discussions** — <https://github.com/orgs/community/discussions>
    发到 `Repositories` 分类下。有 Community Manager 定期巡看并手工触发后台刷新，
    社区里确实有人靠这条路解决了同样的问题。
+
+   按上面的权益表，**免费账户只有这一列是 ✓** ——
+   社区讨论对免费账户是官方认可的正式渠道，不是「凑合的替代品」。
+
+   可引用的先例：#190183（How to trigger garbage collection）、
+   #209559（Unreachable commit）。
+
    ⚠️ 那里是**公开**的 —— **不要贴仓库名、用户名、任何 SHA**
    （包括 First Changed Commit）。只说「我已提交工单，工单号 XXX」。
    公开处能说的只有结论层面的技术事实与工单号。
