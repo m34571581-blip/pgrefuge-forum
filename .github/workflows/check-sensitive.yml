@@ -46,15 +46,12 @@ jobs:
         with:
           node-version: '24'
 
-      - name: 扫描当前文件树
-        run: node scripts/check-sensitive.js
-
-      - name: 扫描整个 git 历史
-        run: node scripts/check-sensitive-history.js
+      - name: 完整自检（工作区 / 暂存区 / 全历史 / 提交信息 / 交付包）
+        run: node scripts/preflight.js
 
       - name: 复查工作区未被污染
         run: |
-          # 上面两步都过了，说明当前与历史都干净。
+          # 上面那步都过了，说明当前与历史都干净。
           # 这一步是双保险：确认 CI 自己跑完之后没有引入新文件。
           git status --porcelain
           echo "工作区状态检查完成"

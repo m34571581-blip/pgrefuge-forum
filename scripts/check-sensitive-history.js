@@ -39,45 +39,20 @@ const VERBOSE = process.argv.includes('--verbose')
 // 规则表（与 check-sensitive.js 保持一致，但只扫内容、不看路径）
 // ---------------------------------------------------------------------------
 
-const RULES = [
-  // ---- 凭据 ----
-  { kind: '凭据', name: 'GitHub PAT（fine-grained）', pattern: /\bgithub_pat_[A-Za-z0-9_]{20,}/g },
-  { kind: '凭据', name: 'GitHub PAT（classic）', pattern: /\bghp_[A-Za-z0-9]{30,}/g },
-  { kind: '凭据', name: 'GitHub OAuth token', pattern: /\bgho_[A-Za-z0-9]{30,}/g },
-  { kind: '凭据', name: 'GitHub App token', pattern: /\bghs_[A-Za-z0-9]{30,}/g },
-  { kind: '凭据', name: 'GitHub refresh token', pattern: /\bghr_[A-Za-z0-9]{30,}/g },
-  { kind: '凭据', name: 'WorkBuddy publishable key', pattern: /\bwbpk_[A-Za-z0-9_]{20,}/g },
-  { kind: '凭据', name: 'Cloudflare API token', pattern: /\bCLOUDFLARE_API_TOKEN\s*[:=]\s*["']?[A-Za-z0-9_-]{30,}/g },
-  { kind: '凭据', name: 'Cloudflare oauth token', pattern: /\boauth_token\s*[:=]\s*["'][A-Za-z0-9_-]{30,}/g },
-  { kind: '凭据', name: 'Cloudflare refresh token', pattern: /\brefresh_token\s*[:=]\s*["'][A-Za-z0-9_-]{30,}/g },
-  { kind: '凭据', name: 'Google API key', pattern: /\bAIza[0-9A-Za-z_-]{35}/g },
-  { kind: '凭据', name: 'Slack token', pattern: /\bxox[abprs]-[A-Za-z0-9-]{20,}/g },
-  { kind: '凭据', name: 'npm token', pattern: /\bnpm_[A-Za-z0-9]{30,}/g },
-  { kind: '凭据', name: 'Anthropic API key', pattern: /\bsk-ant-[A-Za-z0-9_-]{40,}/g },
-  { kind: '凭据', name: '私有钥', pattern: /-----BEGIN (RSA |EC |OPENSSH |PGP )?PRIVATE KEY-----/g },
-  { kind: '凭据', name: 'Authorization 头', pattern: /["']?Authorization["']?\s*[:=]\s*["']Bearer\s+[A-Za-z0-9._-]{20,}/gi },
+const R = require('./check-sensitive-rules.js')
 
-  // ---- 本机环境 ----
-  //
-  // 注意：这些字段名本身不是敏感信息 —— 文档里写
-  // 「我们检查了 tlsClientRandom 字段」是正常的说明文字。
-  // 真正敏感的是**字段带着实际值**（出口 IP、城市名、ASN 名）。
-  // 所以规则要求「字段名 + 冒号 + 值」同时出现，
-  // 纯提及字段名不报。
-  { kind: '环境', name: 'Cloudflare 边缘节点诊断', pattern: /"colo"\s*:\s*"[A-Z]{3}"/g },
-  { kind: '环境', name: 'Cloudflare TLS 握手随机数', pattern: /"tlsClientRandom"\s*:\s*"[^"]{8,}"/g },
-  { kind: '环境', name: 'ASN 运营商信息', pattern: /"asOrganization"\s*:\s*"[^"]{3,}"/g },
-  { kind: '环境', name: 'Cloudflare 出口 IP（162.159.x.x）', pattern: /\b162\.159\.\d{1,3}\.\d{1,3}\b/g }
-]
+/**
+ * 凭据 + 环境规则（与 check-sensitive.js 共用同一份定义）
+ *
+ * 共用的理由：改规则要改三处的话，迟早会漏掉一处 ——
+ * 而漏掉的那一处正好是防线上的洞。
+ */
+const RULES = []
+  .concat(R.CREDENTIAL_RULES.map(r => ({ ...r, kind: '凭据' })))
+  .concat(R.EXPOSURE_RULES.map(r => ({ ...r, kind: '环境' })))
 
 /** 路径黑名单 —— 这些路径在任何历史提交里出现都是问题 */
-const BLOCKED_PATHS = [
-  { pattern: /(^|\/)\.wrangler\//, reason: 'wrangler 本机状态（含出口 IP / 地理位置）' },
-  { pattern: /(^|\/)\.dev\.vars(\.|$)/, reason: 'Cloudflare 本地密钥' },
-  { pattern: /(^|\/)\.env(\.|$)/, reason: '环境变量与密钥' },
-  { pattern: /(^|\/)wrangler-account\.json$/, reason: 'wrangler 账号信息' },
-  { pattern: /(^|\/)cf\.json$/, reason: 'Cloudflare 网络诊断' }
-]
+const BLOCKED_PATHS = R.BLOCKED_PATHS
 
 const MAX_BLOB_BYTES = 2 * 1024 * 1024
 const BINARY_EXT = new Set([
@@ -94,7 +69,9 @@ const BINARY_EXT = new Set([
  */
 const SELF_FILES = new Set([
   'scripts/check-sensitive.js',
-  'scripts/check-sensitive-history.js'
+  'scripts/check-sensitive-history.js',
+  'scripts/check-sensitive-rules.js',
+  'scripts/preflight.js'
 ])
 
 /**
@@ -111,15 +88,18 @@ const SELF_FILES = new Set([
  * 豁免是**显式**的 —— 每加一个都要有人判断过。
  * 滥用豁免等于关掉检查，所以标记本身要显眼。
  */
-const ALLOW_MARK = 'pgrefuge:allow-sensitive'
 
 /** 逐行扫描，跳过带豁免标记的行 */
 function countMatches (text, pattern) {
   const re = new RegExp(pattern.source, pattern.flags.includes('g') ? pattern.flags : pattern.flags + 'g')
+  const lines = text.split('\n')
+  const allowMask = R.computeAllowMask(lines)
   let n = 0
-  for (const line of text.split('\n')) {
-    if (line.includes(ALLOW_MARK)) continue
-    const m = line.match(re)
+  for (let i = 0; i < lines.length; i++) {
+    if (allowMask[i]) continue
+    // 整行都是公开占位值 → 放过
+    if (R.isOnlyPlaceholders(lines[i])) continue
+    const m = lines[i].match(re)
     if (m) n += m.length
   }
   return n

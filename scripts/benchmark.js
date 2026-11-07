@@ -172,7 +172,10 @@ const NEG_EN = [
 //      姓名   —— 形态不可判定，靠上下文
 //      标识符 —— 格式高度规整，靠「关键词 + 格式」双重约束
 //    所以必须分成独立模块（identifier-detector.js），不能塞进姓名规则里。
-const POS_IDENTIFIER = [
+// 这一段是脱敏引擎的**正样本测试集** —— 故意包含手机号/邮箱等格式，
+// 用来验证引擎能识别它们。这些是占位数据（13800138000 是标准测试号，  // pgrefuge:allow-sensitive
+// zhangsan@example.edu.cn 是 example 保留域），不是真实个人信息。
+const POS_IDENTIFIER = [ // pgrefuge:allow-sensitive
   ['学号 2022310108', '学号'],
   ['工号是 20230001', '工号'],
   ['我的学号 2022310108', '学号 + 8~12 位数字'],

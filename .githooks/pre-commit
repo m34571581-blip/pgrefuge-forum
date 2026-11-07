@@ -1,14 +1,15 @@
 #!/bin/sh
 #
-# 提交前的敏感信息检查
+# 提交前的完整自检
 #
-# 为什么放在 hook 里：
-#   本机状态文件（wrangler 的 .wrangler/、各种 .cache/）很容易被
-#   `git add -A` 一把带进去。等推上去再改就晚了 ——
-#   GitHub 上按 SHA 直取 blob 依然有效，即使后来删掉文件。
-#   所以必须在**入库前**拦。
+# 为什么跑整套而不只是扫暂存区：
+#   1. 工作区里可能有未跟踪的本机状态文件（.wrangler/ 等）——
+#      它们不在暂存区，但迟早会被 `git add -A` 带进去
+#   2. 提交信息本身也是公开的，且永久留在 git 历史里
+#   3. 历史里可能已经有漏网之鱼
 #
-# 想跳过（比如确认某处命中无害）：git commit --no-verify
+# 想跳过：git commit --no-verify
+# （但 CI 那层挡不住 —— 服务器端每次 push 都会跑）
 #
 set -e
 
@@ -20,4 +21,4 @@ if ! command -v node >/dev/null 2>&1; then
   exit 0
 fi
 
-exec node scripts/check-sensitive.js --staged
+exec node scripts/preflight.js --staged
