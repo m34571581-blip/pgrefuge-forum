@@ -146,7 +146,7 @@ async function bindWithDeviceFlow (cfg) {
   if (!clientId) throw new Error('未配置 GitHub OAuth App 的 client_id')
 
   notifyProgress('device', '正在申请设备码…')
-  const dev = await postRelay('/device/code', {
+  const dev = await postRelay('/gh/device/code', {
     client_id: clientId,
     scope: 'public_repo'
   })
@@ -180,7 +180,7 @@ async function pollForDeviceToken (dev) {
 
     let payload
     try {
-      payload = await postRelay('/device/token', { device_code: dev.device_code })
+      payload = await postRelay('/gh/device/token', { device_code: dev.device_code })
     } catch (e) {
       // 网络抖动不该直接失败 —— 继续轮询
       continue

@@ -44,12 +44,14 @@ window.PG_CONFIG = {
   //   完整可部署源码见 docs/github-relay-worker.js。
   //
   //   留空 → 站点自动降级为「粘贴令牌」方式。
-  oauthRelayBaseUrl: '',
+  oauthRelayBaseUrl: 'https://pgrefuge-relay.m34571581.workers.dev',
 
   // githubOAuthClientId —— GitHub OAuth App 的 Client ID
   //
   //   这是**公开标识符**，不是密钥，可以放在前端。
   //   在 GitHub → Settings → Developer settings → OAuth Apps 注册后拿到，
   //   注册时记得勾选 "Enable Device Flow"。
+  //
+  //   留空 → 只显示粘贴令牌入口。
   githubOAuthClientId: ''
 };

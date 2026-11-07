@@ -72,8 +72,7 @@ bash "G:/clus_4_t/build_my_skill/pgrefuge-forum/docs/deploy-relay.sh"
 
 1. 检查 Node / npx 是否可用
 2. 检查 Cloudflare 登录状态（没登录会自动打开浏览器让你授权，一次性）
-3. 检查 workers.dev 子域名是否已注册（没注册会给你链接）
-4. 部署 Worker 并打印出要填进 `config.js` 的两行
+3. 部署 Worker 并打印出要填进 `config.js` 的两行
 
 #### 第 3 步可能会遇到的：注册 workers.dev 子域名
 
@@ -98,6 +97,14 @@ bash "G:/clus_4_t/build_my_skill/pgrefuge-forum/docs/deploy-relay.sh"
 > "Would you like to register a workers.dev subdomain now?"，
 > 而脚本运行时是非交互环境，它会拿默认值（否）→ 部署直接失败。
 > 脚本已经提前检测并引导，不会让你卡在这里。
+
+#### 已部署的实例
+
+```
+https://pgrefuge-relay.m34571581.workers.dev
+```
+
+站点 `site/config.js` 里已经填好这个地址。
 
 #### 如果浏览器没自动打开
 
