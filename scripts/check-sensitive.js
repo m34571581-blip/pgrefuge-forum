@@ -67,12 +67,16 @@ const CREDENTIAL_RULES = [
  *
  * 这些不是「凭据」，但同样属于不该进公开仓库的东西：
  * 出口 IP（能被用于定位）、地理位置、运营商信息。
+ *
+ * 注意：字段名本身不敏感 —— 写「我们检查了 tlsClientRandom 字段」
+ * 是正常的说明文字。真正敏感的是**字段带着实际值**。
+ * 所以规则要求「字段名 + 冒号 + 值」同时出现，纯提及不报。
  */
 const EXPOSURE_RULES = [
   { name: 'Cloudflare 边缘节点诊断文件', pattern: /"colo"\s*:\s*"[A-Z]{3}"/g, hint: 'wrangler 留下的出口节点信息' },
-  { name: 'Cloudflare TLS 握手随机数', pattern: /"tlsClientRandom"/g, hint: '网络会话指纹' },
-  { name: 'ASN 运营商信息', pattern: /"asOrganization"\s*:/g, hint: '暴露网络服务商' },
-  { name: 'IP 地理位置字段', pattern: /"(city|region|country|latitude|longitude)"\s*:\s*"[^"]*"/g, hint: '地理位置' },
+  { name: 'Cloudflare TLS 握手随机数', pattern: /"tlsClientRandom"\s*:\s*"[^"]{8,}"/g, hint: '网络会话指纹' },
+  { name: 'ASN 运营商信息', pattern: /"asOrganization"\s*:\s*"[^"]{3,}"/g, hint: '暴露网络服务商' },
+  { name: 'IP 地理位置字段', pattern: /"(city|region|country|latitude|longitude)"\s*:\s*"[^"]+"/g, hint: '地理位置' },
   { name: 'Cloudflare 出口 IP（162.159.x.x）', pattern: /\b162\.159\.\d{1,3}\.\d{1,3}\b/g, hint: '边缘节点出口 IP' }
 ]
 

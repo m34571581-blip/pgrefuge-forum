@@ -58,9 +58,15 @@ const RULES = [
   { kind: '凭据', name: 'Authorization 头', pattern: /["']?Authorization["']?\s*[:=]\s*["']Bearer\s+[A-Za-z0-9._-]{20,}/gi },
 
   // ---- 本机环境 ----
+  //
+  // 注意：这些字段名本身不是敏感信息 —— 文档里写
+  // 「我们检查了 tlsClientRandom 字段」是正常的说明文字。
+  // 真正敏感的是**字段带着实际值**（出口 IP、城市名、ASN 名）。
+  // 所以规则要求「字段名 + 冒号 + 值」同时出现，
+  // 纯提及字段名不报。
   { kind: '环境', name: 'Cloudflare 边缘节点诊断', pattern: /"colo"\s*:\s*"[A-Z]{3}"/g },
-  { kind: '环境', name: 'Cloudflare TLS 握手随机数', pattern: /"tlsClientRandom"/g },
-  { kind: '环境', name: 'ASN 运营商信息', pattern: /"asOrganization"\s*:/g },
+  { kind: '环境', name: 'Cloudflare TLS 握手随机数', pattern: /"tlsClientRandom"\s*:\s*"[^"]{8,}"/g },
+  { kind: '环境', name: 'ASN 运营商信息', pattern: /"asOrganization"\s*:\s*"[^"]{3,}"/g },
   { kind: '环境', name: 'Cloudflare 出口 IP（162.159.x.x）', pattern: /\b162\.159\.\d{1,3}\.\d{1,3}\b/g }
 ]
 
