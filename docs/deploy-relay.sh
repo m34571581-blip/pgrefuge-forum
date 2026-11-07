@@ -51,19 +51,111 @@ fi
 
 echo
 echo "→ 检查 Cloudflare 登录状态…"
-if ! npx --yes wrangler@latest whoami >/dev/null 2>&1; then
-  echo "  未登录。即将打开浏览器完成 Cloudflare 授权…"
-  echo "  （只需做一次）"
-  npx --yes wrangler@latest login
+#
+# 注意：这里不能只看 whoami 的退出码，也不能粗略 grep "account"。
+#
+# 实测踩过的坑：
+#   - 非交互环境下 wrangler 因「需要 CLOUDFLARE_API_TOKEN」而失败，但**退出码仍是 0**
+#     → 只看退出码会误判「已登录」
+#   - 未登录时它输出的 "To deploy without logging in, ... temporary account"
+#     里含 "account" → 粗略 grep "account" 同样会误判
+#
+# 所以判据是：**必须出现明确的已登录标志**，且**不能出现未登录标志**。
+# wrangler 登录成功后会打出 "You are logged in with an account" 之类，
+# 未登录时则是 "You are not authenticated"。
+WHOAMI_OUT="$(npx --yes wrangler@latest whoami 2>&1 || true)"
+
+if echo "$WHOAMI_OUT" | grep -qi "not authenticated"; then
+  LOGGED_IN=0
+elif echo "$WHOAMI_OUT" | grep -qiE "you are logged in|logged in with|account id|Account:"; then
+  LOGGED_IN=1
+else
+  LOGGED_IN=0
 fi
-echo "✓ Cloudflare 已登录"
+
+if [ "$LOGGED_IN" = "1" ]; then
+  echo "✓ Cloudflare 已登录"
+elif [ -n "${CLOUDFLARE_API_TOKEN:-}" ]; then
+  echo "✓ 使用环境变量 CLOUDFLARE_API_TOKEN"
+else
+  echo "  未登录。即将打开浏览器完成 Cloudflare 授权…"
+  echo "  （只需做一次，浏览器会给你一个授权码，粘贴回终端）"
+  echo
+  echo "  如果浏览器没自动打开，手动打开这个链接完成授权："
+  echo "    https://dash.cloudflare.com/profile/api-tokens"
+  echo
+  npx --yes wrangler@latest login || {
+    echo
+    echo "✗ 登录失败。也可以改用 API Token 方式："
+    echo "  1) 打开 https://dash.cloudflare.com/profile/api-tokens"
+    echo "  2) Create Token → 选 'Edit Cloudflare Workers' 模板"
+    echo "  3) 设 CLOUDFLARE_API_TOKEN 环境变量后重跑本脚本"
+    exit 1
+  }
+fi
 
 echo
 echo "→ 部署 Worker：$WORKER_NAME …"
-npx --yes wrangler@latest deploy "$WORKER_FILE" \
+
+#
+# ---- 前置检查：workers.dev 子域名是否已注册 ----
+#
+# 首次部署前必须先注册一个 workers.dev 子域名，
+# 否则 wrangler 会弹出交互式提问「Would you like to register a workers.dev subdomain now?」，
+# 而在非交互环境里它会拿 fallback 值（no）→ 部署直接失败。
+#
+# 这个注册是**一次性的**（账号级），注册后所有 Worker 都能用。
+#
+# 检测方式：直接问 wrangler 部署能不能通 —— 但更干净的做法是
+# 从 whoami 输出里找账号信息；找不到就引导用户去 Dashboard 注册。
+# **不要把账号 ID 写死在脚本里** —— 每个用户的账号 ID 都不同。
+#
+WHOAMI2="$(npx --yes wrangler@latest whoami 2>&1 || true)"
+ACCOUNT_ID="$(echo "$WHOAMI2" | grep -oE '[0-9a-f]{32}' | head -1)"
+
+if ! echo "$WHOAMI2" | grep -qi "workers.dev"; then
+  echo
+  echo "⚠ 首次部署需要先注册 workers.dev 子域名（一次性操作）。"
+  echo
+  if [ -n "$ACCOUNT_ID" ]; then
+    echo "  请打开这个链接完成注册："
+    echo "    https://dash.cloudflare.com/$ACCOUNT_ID/workers/onboarding"
+  else
+    echo "  请打开 Cloudflare Dashboard → Workers & Pages → Onboarding："
+    echo "    https://dash.cloudflare.com/ → Workers & Pages"
+  fi
+  echo
+  echo "  点「Get started」→ 选 Free 计划 → 输入一个子域名前缀（比如 pgrefuge）"
+  echo "  注册完再重跑本脚本。"
+  echo
+  exit 1
+fi
+
+#
+# 部署失败时把 wrangler 的输出完整打出来 ——
+# wrangler 的错误信息在最后几行（X [ERROR] ...），
+# 但前面有大量 banner，只看尾部容易漏掉关键信息。
+DEPLOY_OUT="$(npx --yes wrangler@latest deploy "$WORKER_FILE" \
   --name "$WORKER_NAME" \
   --compatibility-date 2024-11-01 \
-  --no-bundle
+  --no-bundle 2>&1)" && DEPLOY_OK=1 || DEPLOY_OK=0
+
+echo "$DEPLOY_OUT"
+
+if [ "$DEPLOY_OK" != "1" ]; then
+  echo
+  echo "==============================================="
+  echo " ✗ 部署失败"
+  echo "==============================================="
+  echo
+  echo "常见原因："
+  echo "  · 未登录 Cloudflare —— 跑 npx wrangler login"
+  echo "  · API Token 权限不足 —— 需 'Edit Cloudflare Workers' 模板"
+  echo "  · Workers 付费额度未开通 —— Dashboard → Workers → 启用免费计划"
+  echo "  · 网络代理拦截 —— 检查 HTTP_PROXY / HTTPS_PROXY"
+  echo
+  exit 1
+fi
 
 echo
 echo "==============================================="
