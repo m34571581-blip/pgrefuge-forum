@@ -227,7 +227,7 @@ PATCH /repos/{owner}/{repo}             {"default_branch":"main"}
 DELETE /repos/{owner}/{repo}/git/refs/heads/gc-temp
 ```
 
-### 第 7 步：等 GitHub 后台 GC
+### 第 7 步：等 GitHub 后台 GC，或联系 Support
 
 **GitHub 没有手动触发 GC 的按钮或 API。** 实测确认：
 
@@ -237,10 +237,64 @@ DELETE /repos/{owner}/{repo}/git/refs/heads/gc-temp
 | 删分支重建 | 断开了引用，但对象仍在 |
 | 等待后台 GC | 几小时到几周（视仓库活跃度） |
 
-想加速就**联系 GitHub Support**，说明「用 git-filter-repo 重写了历史并删除了所有分支，
-请帮忙跑一次 GC / 清理不可达对象」。免费账户也会处理。
-
 **GC 完成前，旧 SHA 依然能下载到文件。** 这段时间要当作「仍然泄露」处理。
+
+#### 联系 Support 时官方要求提供什么
+
+GitHub 官方《Removing sensitive data from a repository》明确要求提供：
+
+| 项 | 说明 | 本次的值 |
+|---|---|---|
+| Owner / Repo | 仓库标识 | `m34571581-blip/pgrefuge-forum` |
+| **First Changed Commit(s)** | 验证你确实做过重写的凭据 | `7cfef8b9637378e41ca0951534e76c7a3acc5d02` |
+| 受影响的 PR 数量 | 同上 | `0` |
+| LFS orphan 对象 | 有的话要附文件 | 无 |
+
+> **First Changed Commit 从哪来**：`git filter-repo` 输出里的
+> `NOTE: First Changed Commit(s)`。**这个值要当场记下来** ——
+> 重写完它就很难找了（历史已变，只能靠新旧历史对比反推：
+> 找出新历史里最早、且不在旧历史里的那个提交）。
+> 本次就是因为脚本没记录这一项，后来靠 GitHub API 逐个比对两版历史才定位出来。
+
+**⚠️ 表单类别别选错**：Support 的表单按分类动态生成。
+「删除代码存储库」那个分类是**删整个仓库**的（最后有「请确认您的操作」，
+选「删除」不可恢复）。正确路径是 `Repositories → Something else / Other`，
+**判据是表单里必须有大文本框能写详细说明**。
+
+#### 关键：Support 只受理「敏感数据」
+
+官方同一篇里写着：
+
+> GitHub Support won't remove non-sensitive data, and will only assist in
+> the removal of sensitive data in cases where we determine that the risk
+> can't be mitigated by rotating affected credentials.
+
+所以信里**必须论证「为什么这算敏感」**，不能只说「我误提交了文件」。
+
+判断标准：
+- 是密钥？→ 敏感，但要说明已吊销/轮换（因为轮换了就够了的，官方不建议折腾历史）
+- 是无法吊销的东西？→ **敏感**。比如出口 IP + 地理位置 + ISP ——
+  这些没法轮换，除了从存储里删掉没有别的缓解手段。
+  这正对应官方说的 "risk can't be mitigated by rotating affected credentials"。
+
+#### Support 收到后会做什么
+
+官方列的四件事：
+
+> - Dereference or delete any affected pull requests on GitHub
+> - **Run a garbage collection on the server to expunge the sensitive data from storage**
+> - **Remove cached views**
+> - If LFS Objects are involved, delete and/or purge the orphaned LFS objects
+
+#### 如果工单被自动关闭
+
+社区反馈提到**免费账户的工单有时会被系统自动关闭**（按账户级别路由）。
+备选路径：
+
+1. **GitHub Community Discussions** — <https://github.com/orgs/community/discussions>
+   发到 `Repositories` 分类下。有 Community Manager 定期巡看并手工触发后台刷新，
+   社区里确实有人靠这条路解决了同样的问题。
+2. **等后台 GC** — 几小时到几周。
 
 ---
 
