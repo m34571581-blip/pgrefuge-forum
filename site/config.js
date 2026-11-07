@@ -53,5 +53,5 @@ window.PG_CONFIG = {
   //   注册时记得勾选 "Enable Device Flow"。
   //
   //   留空 → 只显示粘贴令牌入口。
-  githubOAuthClientId: ''
+  githubOAuthClientId: 'Ov23lim6mt7ckMiRREPQ'
 };
