@@ -46,12 +46,69 @@ GitHub → 右上角头像 → **Settings** → 最下方 **Developer settings**
 
 完整源码在 **`docs/github-relay-worker.js`**（约 130 行，零依赖）。
 
-**最快的方式**：
+#### 在哪里运行
+
+**在你自己的电脑上**，用 **Git Bash**（Windows 上的 Git 终端）。
+不是浏览器、不是 GitHub 网页 —— 这是一条命令行命令。
+
+打开 Git Bash 后，先 `cd` 到工作区根目录：
+
+```bash
+cd /g/clus_4_t/build_my_skill        # Git Bash 的路径写法
+bash pgrefuge-forum/docs/deploy-relay.sh
+```
+
+或者不进目录、直接用绝对路径（Windows 风格也行）：
+
+```bash
+bash "G:/clus_4_t/build_my_skill/pgrefuge-forum/docs/deploy-relay.sh"
+```
+
+> **前置条件**：Node.js 18+（提供 `npx`）。本机已确认可用：
+> Node v22.22.2 / npx 10.9.7 / bash 5.3.15。
+> wrangler 不需要预装，脚本会用 `npx` 自动拉取。
+
+#### 脚本会做什么
+
+1. 检查 Node / npx 是否可用
+2. 检查 Cloudflare 登录状态（没登录会自动打开浏览器让你授权，一次性）
+3. 检查 workers.dev 子域名是否已注册（没注册会给你链接）
+4. 部署 Worker 并打印出要填进 `config.js` 的两行
+
+#### 第 3 步可能会遇到的：注册 workers.dev 子域名
+
+这是**首次部署必需的一次性操作**（账号级，注册后所有 Worker 都能用）。
+脚本会检测到并给你链接，形如：
+
+```
+⚠ 首次部署需要先注册 workers.dev 子域名（一次性操作）。
+
+  请打开这个链接完成注册：
+    https://dash.cloudflare.com/<你的账号ID>/workers/onboarding
+
+  点「Get started」→ 选 Free 计划 → 输入一个子域名前缀（比如 pgrefuge）
+  注册完再重跑本脚本。
+```
+
+进去之后：点 **Get started** → 选 **Free** 计划 → 输入一个子域名前缀
+（比如 `pgrefuge`，这个前缀会成为你的 Worker 地址前缀）
+→ 确认 → 回到终端重跑脚本。
+
+> 为什么必须先注册：wrangler 在没注册时会弹交互式提问
+> "Would you like to register a workers.dev subdomain now?"，
+> 而脚本运行时是非交互环境，它会拿默认值（否）→ 部署直接失败。
+> 脚本已经提前检测并引导，不会让你卡在这里。
+
+#### 如果浏览器没自动打开
+
+手动打开脚本给出的链接完成登录，或直接用 Dashboard 部署：
+
 1. 打开 [Cloudflare Dashboard](https://dash.cloudflare.com) → Workers & Pages
 2. Create → Worker → 起名 `pgrefuge-relay` → Deploy
 3. 点进去 → Edit code → 全选删除，粘贴 `docs/github-relay-worker.js` 的内容 → Deploy
 
-**或者用命令行**：
+#### 或者用命令行（不用脚本）
+
 ```bash
 npx wrangler deploy pgrefuge-forum/docs/github-relay-worker.js --name pgrefuge-relay
 ```
