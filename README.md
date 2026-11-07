@@ -120,9 +120,13 @@ pgrefuge-forum/
 │   ├── posts.json           # 数据集（结构化，可直接分析）
 │   └── .raw-cache.json      # 原始缓存（离线调试用）
 ├── .github/workflows/
-│   └── sync.yml             # 每 6 小时自动同步 + 部署
+│   ├── sync.yml             # 每 6 小时自动同步 + 部署
+│   └── check-sensitive.yml  # 敏感信息检查（push / PR 都跑）
+├── .githooks/
+│   └── pre-commit           # 提交前的敏感信息检查（本地防线）
 └── docs/
-    └── SETUP.md             # 部署步骤
+    ├── SETUP.md             # 部署步骤
+    └── sensitive-info-guard.md  # 敏感信息防护：预防与清除
 ```
 
 ---
@@ -201,6 +205,36 @@ node scripts/sync.js --offline   # 用 data/.raw-cache.json
 | 冷启动 | 社区产品的固有难题，需要种子内容与氛围运营 |
 | 研究院/研究所未覆盖 | 「研究生院」不在机构词表里，属于已知漏检 |
 | 分类数上限 25 | GitHub Discussions 的分类数量限制 |
+
+---
+
+## 敏感信息防护
+
+仓库是公开的，且会渲染用户提交的第三方内容 —— 所以「什么能进 git」需要严格约束。
+
+`wrangler dev` 曾在 `docs/.wrangler/` 留下本机状态目录（Cloudflare 边缘节点诊断：
+出口 IP、地理位置、运营商 ASN、TLS 握手随机数），被 `git add -A` 带进历史。
+
+**关键事实：删文件不等于删除。** GitHub 上按 SHA 直取 blob 始终有效，
+哪怕提交早已从分支历史消失 —— `raw.githubusercontent.com/<owner>/<repo>/<旧SHA>/<路径>`
+照样能下到。
+
+现在有三层防线：
+
+| 层 | 位置 | 作用 |
+|---|---|---|
+| 1 | `.gitignore` | 挡住本机状态目录 |
+| 2 | `.githooks/pre-commit` | 挡住手滑（扫暂存区） |
+| 3 | `.github/workflows/check-sensitive.yml` | 挡住绕过（服务器端，扫全历史） |
+
+手动检查：
+
+```bash
+node scripts/check-sensitive.js           # 当前文件树
+node scripts/check-sensitive-history.js   # 整个 git 历史
+```
+
+完整说明（含已泄露内容的清除流程）见 [`docs/sensitive-info-guard.md`](docs/sensitive-info-guard.md)。
 
 ---
 
