@@ -280,10 +280,13 @@ function sleep (ms) {
 
 /**
  * 解绑：清除内存中的令牌
+ *
+ * @param {string} [reason] 解绑原因，传给 onUnbound 回调
+ *   'expired' —— 令牌过期被动解绑（提示语与主动解绑不同）
  */
-function unbind () {
+function unbind (reason) {
   GH.reset()
-  if (onUnbound) onUnbound()
+  if (onUnbound) onUnbound(reason || 'manual')
 }
 
 if (typeof module !== 'undefined' && module.exports) {

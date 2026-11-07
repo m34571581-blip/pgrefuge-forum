@@ -769,9 +769,13 @@
 
     GH_BIND.setHandlers({
       onBound: renderBound,
-      onUnbound: function () {
+      onUnbound: function (reason) {
         renderUnbound()
-        setMsg('已解绑，令牌已从内存清除。')
+        if (reason === 'expired') {
+          setMsg('令牌已过期，请重新绑定后再发布', 'err')
+        } else {
+          setMsg('已解绑，令牌已从内存清除。')
+        }
       },
       onProgress: function (stage, detail, extra) {
         // Device Flow 的「等待授权」阶段要把验证码显示出来
@@ -957,6 +961,18 @@
           titleInput.value = ''
         })
         .catch(function (e) {
+          // 令牌失效（401）→ 回到未绑定状态，让「一键绑定」按钮重新出现
+          //
+          // 为什么必须这样：OAuth App 勾了 "Expire user access tokens" 后
+          // token 8 小时就过期。用户在标签页开着不动、回来想发帖时，
+          // 令牌已经失效 —— 如果只显示一句「令牌已过期」而界面还停在
+          // 已绑定状态，用户点哪里都没用，只能刷新页面。
+          //
+          // 所以这里主动解绑并提示重新绑定。
+          if (e && e.code === 'unauthorized') {
+            GH_BIND.unbind('expired')
+            return
+          }
           setMsg(GH_CLIENT.explainError(e), 'err')
         })
         .finally(function () {
