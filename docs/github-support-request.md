@@ -27,38 +27,54 @@ https://github.com/m34571581-blip/pgrefuge-forum
 
 ## 二、表单怎么选（重要）
 
-GitHub Support 的表单是**按分类动态生成**的，不同分类问的问题完全不同。
-
-### ❌ 不要选「删除」
-
-你截图里的那个表单属于**删除代码存储库**分类，最后还有一道「请确认您的操作」——
-**选「删除」会真的把仓库删掉，不可恢复**。
-
-### ✅ 正确路径
-
-返回 <https://support.github.com/contact> 重新进入，按这个顺序选：
+### ✅ 首选：直接用专用入口
 
 ```
-Category:  Repositories
-   └─ Subcategory:  Something else / Other
+https://support.github.com/contact?flow=clear_cached_views
 ```
 
-不同账号看到的分类名可能略有差异。**判断标准：进入后表单里应该出现一个能填写
-详细描述的大文本框**（几百到几千字符的那种）。
+这个 `flow` 参数是 GitHub **专门为「清理缓存视图」设的**——
+绕过所有分类选择，直接进正确的表单。
 
-如果第一层没有 `Repositories`，试试：
+实测确认（未登录状态）：
 
 ```
-Category:  Data Privacy / Privacy / Security
+GET /contact?flow=clear_cached_views
+  → 302  Location: https://help.github.com/contact?flow=clear_cached_views
+  → 302  Location: https://help.github.com/request/landing
+  → 200  「Sign in for Software Support and Product Help」
 ```
 
-**判断标准只有一个：表单里必须有大文本框能写详细说明。**
-如果表单只有几个单选 + 一个 URL 输入框，那是流程表单（比如删仓库），
-说明选错分类了，退回上一层重选。
+**参数在两次重定向中都被保留了** —— 说明服务端认得这个 flow 值。
+（不存在的 flow 参数不会这样被保留。）
 
-> **小技巧**：可以先随便填一下走到最后，看有没有「详细描述」文本框，
-> 不提交直接关掉，再回��重选。这样不会误提交。
+登录后就能看到针对这个场景的专用表单。
 
+### ⚠️ 如果手动选分类：不要选「删除」
+
+Support 的表单是**按分类动态生成**的，不同分类问的问题完全不同。
+
+**「删除」分类是删整个仓库的** —— 里面最后有一道
+「请确认您的操作。存储库一旦被彻底清除，将无法恢复」，
+选「删除」会**真的把仓库删掉**，不可恢复。
+
+如果 `?flow=clear_cached_views` 不可用（比如被重定向到了分类页），
+在 `代码存储库 / Repositories` 分类下找**带大文本框**的子类。
+
+**判据只有一个：表单里必须出现能写详细说明的大文本框。**
+如果只有几个单选 + 一个 URL 输入框，那是流程表单（比如删仓库），退回重选。
+
+> 小技巧：可以先随便填一下走到最后，看有没有「详细描述」文本框，
+> 不提交直接关掉，再回退重选。这样不会误提交。
+
+### 📌 信的第一句话要写明性质
+
+因为分类可能不完全对，信的**第一句**要自我定性，让支持知道该转给谁：
+
+> This is a sensitive-data removal request per the GitHub Docs page
+> "Removing sensitive data from a repository", not a technical support question.
+
+社区里有人靠这一句话让工单被正确路由，而没有被打回模板回复。
 ---
 
 ## 三、Subject（标题栏）
@@ -73,6 +89,9 @@ Garbage collection request: unreachable objects still served after history rewri
 
 ```
 Hello GitHub Support,
+
+This is a sensitive-data removal request per the GitHub Docs page
+"Removing sensitive data from a repository" — not a technical support question.
 
 I am requesting a server-side garbage collection on a public repository, to
 purge unreachable objects that are still being served after a history rewrite.
@@ -258,16 +277,65 @@ Support 收到后会做四件事：
 
 ## 七、如果被拒绝或自动关闭
 
-社区反馈里提到过：**免费账户的工单有时会被系统自动关闭**，理由是账户级别。
+### 官方文档与实际案例不一致
 
-如果遇到这种情况，有两个备选：
+GitHub 官方《Creating a support ticket》写着：
 
-1. **在 GitHub Community Discussions 发帖**
-   <https://github.com/orgs/community/discussions>
-   发到 `Repositories` 分类下。有 GitHub Community Manager 会定期巡看并
-   手工触发后台刷新 —— 社区里确实有人靠这条路解决了同样的问题。
+> You will only see the link to open a support ticket if your account uses a
+> **paid** GitHub product or you are a member of an organization that uses a
+> paid product.
 
-2. **等后台 GC**
-   官方社区的说法是几小时到几周（视仓库活跃度）。
-   在这期间被删的文件仍能通过 `raw.githubusercontent.com` 按旧 SHA 下载 ——
-   **「已经删了」不等于「已经不可访问」**，这段时间要当作「仍然泄露」处理。
+但实际案例里，**免费账户成功过**：
+
+- StackOverflow 上有人用同样的流程（filter-branch + force push）联系 Support，
+  **5 分钟就收到回复**，Support 跑了 `git gc` 后链接立刻变 404。
+- 社区讨论里也有人说「GitHub support does this manually for users fairly regularly」。
+
+所以结论是：**免费账户也可能被受理**，值得一试。
+
+如果账号显示「Technical support not included」，那只是说**常规技术支持**不包含，
+不代表敏感数据清理会被拒 —— 官方文档明确把这类请求归为不同类型处理。
+
+### 备选路径
+
+**1. GitHub Community Discussions**
+<https://github.com/orgs/community/discussions> → 发到 `Repositories` 分类下。
+
+有 GitHub Community Manager 定期巡看并手工触发后台刷新。
+社区里确实有人靠这条路解决了同样的问题（有人发帖后，
+Community Manager 手工刷新了贡献者列表，贡献者图随即恢复）。
+
+> 社区讨论是**公开**的，所以那里只说「我已提交工单，工单号 XXX」，
+> **不要贴仓库名和 SHA**。工单本身才是私密信道。
+
+**2. 回复确认邮件而不是重复开单**
+工单提交后会收到确认邮件。如果被自动关闭或长时间无回复，
+**回复那封邮件的线程**，不要重复开新单 —— 重复单据会拖慢处理。
+
+**3. 等后台 GC**
+官方社区的说法是几小时到几周（视仓库活跃度）。
+在这期间被删的文件仍能通过 `raw.githubusercontent.com` 按旧 SHA 下载 ——
+**「已经删了」不等于「已经不可访问」**，这段时间要当作「仍然泄露」处理。
+
+---
+
+## 八、一个重要提醒：不要删仓库重建
+
+StackOverflow 上有个说法是「删掉仓库重建是最快的办法」，**但那是错的**：
+
+> While the former option is faster, it will also delete the wiki, issues and comments.
+
+删仓库会连带销毁：
+
+- Wiki
+- Issues 与评论
+- Stars / Watchers / Fork 关系
+- Actions 运行记录
+- 仓库设置（Discussions 分类、Pages 配置等）
+
+而 Support **可以在现有仓库上跑 GC**，不需要你删它。
+社区里也有人明确提醒：「don't delete the repo, because Support can run the
+cleanup on the existing one」。
+
+**本仓库有 55 个提交、GitHub Pages 部署、Discussions 数据集** ——
+删仓库重建的代价远大于等一次 GC。

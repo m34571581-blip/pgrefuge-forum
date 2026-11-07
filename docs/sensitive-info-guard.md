@@ -286,6 +286,37 @@ GitHub 官方《Removing sensitive data from a repository》明确要求提供�
 > - **Remove cached views**
 > - If LFS Objects are involved, delete and/or purge the orphaned LFS objects
 
+#### 提交入口：优先用专用 flow 参数
+
+```
+https://support.github.com/contact?flow=clear_cached_views
+```
+
+这是 GitHub **专门为「清理缓存视图」设的 flow**，绕过分类选择直达正确表单。
+实测确认（未登录状态）：
+
+```
+GET /contact?flow=clear_cached_views
+  → 302  Location: help.github.com/contact?flow=clear_cached_views
+  → 302  Location: help.github.com/request/landing
+  → 200  登录页
+```
+
+**参数在两次重定向中都被保留** —— 说明服务端认得这个 flow 值。
+
+如果手动选分类，**不要选「删除」** —— 那是删整个仓库的，
+最后一道「请确认您的操作」选「删除」不可恢复。
+判据是「表单里必须有能写详细说明的大文本框」。
+
+#### 免费账户能不能提？
+
+官方《Creating a support ticket》写着只有**付费**账户能看到「提交工单」链接。
+但实际案例里免费账户成功过 —— StackOverflow 上有人用同样流程联系 Support，
+**5 分钟收到回复**，Support 跑 `git gc` 后链接立刻 404。
+
+所以值得一试。若账号显示「Technical support not included」，
+那只是说常规技术支持不包含，不代表敏感数据清理会被拒。
+
 #### 如果工单被自动关闭
 
 社区反馈提到**免费账户的工单有时会被系统自动关闭**（按账户级别路由）。
@@ -294,7 +325,18 @@ GitHub 官方《Removing sensitive data from a repository》明确要求提供�
 1. **GitHub Community Discussions** — <https://github.com/orgs/community/discussions>
    发到 `Repositories` 分类下。有 Community Manager 定期巡看并手工触发后台刷新，
    社区里确实有人靠这条路解决了同样的问题。
-2. **等后台 GC** — 几小时到几周。
+   ⚠️ 那里是**公开**的，只说「我已提交工单，工单号 XXX」，
+   **不要贴仓库名和 SHA** —— 工单本身才是私密信道。
+2. **回复确认邮件线程**，不要重复开单 —— 重复单据会拖慢处理。
+3. **等后台 GC** — 几小时到几周。
+
+#### ⚠️ 不要用「删仓库重建」这个方案
+
+StackOverflow 上有说法称删仓库重建最快，**但那是错的** ——
+它会连带删掉 wiki、issues、评论、stars、Actions 记录和仓库设置。
+而 Support **可以在现有仓库上跑 GC**。
+
+社区原话：「don't delete the repo, because Support can run the cleanup on the existing one」
 
 ---
 
