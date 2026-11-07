@@ -29,70 +29,78 @@ https://github.com/m34571581-blip/pgrefuge-forum
 
 ### 你的账户只有 6 个顶层类目
 
-`help.github.com/support/contact/product-selection` 页面（已登录状态）显示：
+`help.github.com/support/contact/product-selection`（已登录）显示：
 
 | 常用产品 | 情况 |
 |---|---|
 | Copilot / Codespaces / **仓库** | 教育版 / **登录问题** / 计费和付款 |
 
-社区里有个和你情况**完全一样**的人（Standard 账户、同样找不到敏感数据清理选项），
-他看到的也是这六个 —— **没有「Something else」，也没有「安全」类目**。
-所以找不到是账户层级的限制，不是你的问题。
+社区讨论 #209921 里那个和你情况**完全一样**的人（Standard 账户、
+同样找不到敏感数据清理选项、同样想保住仓库不删）看到的也是这六个。
+**没有「安全」类目，也没有「Something else」。**
 
-### ✅ 路径：仓库 → 存储库功能
+### ⚠️ 已实测：「仓库」下的子项全是流程表单
 
-关键：**「我们能提供什么帮助？」那一栏是单选，选不同的项，下面的表单会整个换掉。**
+「我们能提供什么帮助？」是**单选，选不同项则下面整个表单换掉**。
+你一路点下来会依次遇到：
 
-你之前选的是「删除」，所以看到的是删仓库专用表单。
-**换成「存储库功能」** —— 那是仓库类目下的通用项，
-表单里会有可以写详细说明的文本框。
+| 子项 | 表单形态 | 能用吗 |
+|---|---|---|
+| 删除 | URL 输入 + 「请确认您的操作」 | ❌ 会真删仓库 |
+| 存储库功能 | 复选框：模板 / 版本 / 见解 / 分支 | ❌ 四个都不是我们的场景 |
+| Log request | 日志请求专用 | ❌ |
+| Remove LFS objects | LFS 专用 | ❌ 本仓库没用 LFS |
+| 邀请 / 迁移和锁定状态 / 恢复 / 转移 | 各自的操作流程 | ❌ |
 
-```
-product-selection  →  仓库  →  「我们能提供什么帮助？」选「存储库功能」
-```
+**没有一个是带自由文本框的通用工单表单。**
 
-**判据：表单里必须出现能写详细说明的大文本框。**
-如果还是只有几个单选 + URL 输入框，说明这一项也是流程表单，继续往下试别的项。
+### ✅ 唯一走得通的路：登录问题
 
-> 💡 检查方法：走到表单最后看一眼有没有大文本框，
-> **不提交直接关掉**即可，不会误操作。
+顶层类目里的 **「登录问题」** —— 官方文档明确说明这是免费账户
+绕过付费限制的通道：
 
-> ⚠️ **绝对不要选「删除」**。那一项最后有
-> 「请确认您的操作。存储库一旦被彻底清除，将无法恢复」，
-> 选「删除」会**真的把仓库删掉**。
+> If your account uses GitHub Free, you can speak to GitHub users and staff
+> on the GitHub Community discussions for most issues, and **you can contact
+> GitHub Support to report account, security, and abuse issues.**
 
-### 🔄 备选：登录问题
+中文版同一段：
 
-如果「存储库功能」也是流程表单（没有大文本框），
-改用顶层类目里的 **「登录问题」**。
+> 如果未看到此链接，你可以就大多数问题与 GitHub 用户和工作人员在 GitHub
+> 社区讨论交谈，**你仍然可以联系 GitHub 支持以报告帐户、安全和滥用问题**。
 
-这是 fpt（免费/标准）账户**唯一与账户安全相关的队列**，
-而社区里验证过的路径正是：
+「账户 / 安全 / 滥用」是 GitHub Support 对免费账户**唯一开放受理**的类别。
+敏感数据清理正属于这一类（官方《Removing sensitive data from a repository》
+就是让这类请求走 Support）。
 
-> github actually does provide support for sensitive data removal and security
-> issues on **free/standard accounts**, even though it says "technical support
-> not included" for general stuff. **security and account issues bypass that
-> restriction.**
+**「登录问题」下面通常有「其他 / Other」或直接是描述框**——
+选它，然后在描述里说明这实际是数据清理请求。
 
-即：账户与安全类问题**不受付费限制**。
-
-### 📌 为什么第一句话很重要
+### 📌 靠正文自我定性（免费账户没有下拉框）
 
 免费账户的表单里**没有**「Type of Issue」这类下拉框
-（官方文档里那个含 "removing sensitive data" 的选项只对
-Enterprise / Cloud 账号开放）—— 所以只能靠正文自我定性。
+（官方文档源码里那个含 `removing sensitive data (commits, issues,
+pull requests, uploaded attachments)` 的选项被包在
+`{%- ifversion ghes or ghec %}` 里，只对 Enterprise/Cloud 开放）。
 
-信的**第一句**必须写：
+所以 Subject + 正文第一句必须自己说明性质：
 
-> This is a sensitive-data removal request per the GitHub Docs page
-> "Removing sensitive data from a repository", not a technical support question.
+Subject:
+```
+Sensitive data removal request: unreachable objects still served by SHA after history rewrite
+```
 
-这句话是社区里验证过的路由技巧 —— 让工单被分到正确的团队，
-而不是被打回模板回复。
+正文第一句:
+```
+This is a sensitive-data removal request per the GitHub Docs page
+"Removing sensitive data from a repository", not a technical support question.
+```
+
+**标题栏也是路由依据** —— 把 "sensitive data removal request" 放最前面，
+比先写 "garbage collection" 更容易被分到正确的团队。
 
 ### 关于 `?flow=clear_cached_views`
 
-这个 flow 参数**登录后会被丢掉** —— 实测：
+实测**登录后参数会被丢掉**：
 
 ```
 未登录：/contact?flow=clear_cached_views
@@ -336,15 +344,22 @@ GitHub 官方《Creating a support ticket》写着：
 
 ### 备选路径
 
-**1. GitHub Community Discussions**
+**1. GitHub Community Discussions** ⭐ 最靠谱的兜底
 <https://github.com/orgs/community/discussions> → 发到 `Repositories` 分类下。
 
 有 GitHub Community Manager 定期巡看并手工触发后台刷新。
 社区里确实有人靠这条路解决了同样的问题（有人发帖后，
 Community Manager 手工刷新了贡献者列表，贡献者图随即恢复）。
 
-> 社区讨论是**公开**的，所以那里只说「我已提交工单，工单号 XXX」，
-> **不要贴仓库名和 SHA**。工单本身才是私密信道。
+> ⚠️ 社区讨论是**公开**的 —— 那里**不要贴仓库名、用户名、任何 SHA**。
+> 只说「我已提交工单，工单号 XXX」。工单本身才是私密信道。
+>
+> 公开讨论里能安全说的内容：
+> - 结论层面的技术事实（GitHub 对不可达对象的处理机制、GC 是逐对象回收的）
+> - 你已经做了哪些清理动作（force push、删分支、删 tag）
+> - 工单号
+>
+> 不能说的：仓库 URL、用户名、旧 SHA、First Changed Commit。
 
 **2. 回复确认邮件而不是重复开单**
 工单提交后会收到确认邮件。如果被自动关闭或长时间无回复，

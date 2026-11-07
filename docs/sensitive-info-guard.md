@@ -288,23 +288,35 @@ GitHub 官方《Removing sensitive data from a repository》明确要求提供�
 
 #### 提交入口：选对类目 + 选对子项
 
-**顶层选「仓库」，子项选「存储库功能」**（不是「删除」）。
+**顶层选「登录问题」** —— 这是 fpt（免费/标准）账户唯一开放受理的队列。
 
-「我们能提供什么帮助？」那一栏是**单选，选不同的项下面整个表单会换掉**。
-选「删除」得到的是删仓库专用表单；选「存储库功能」才有自由文本框。
+官方文档明确：
 
-免费/标准账户的顶层只有 6 个类目
+> If your account uses GitHub Free, you can speak to GitHub users and staff
+> on the GitHub Community discussions for most issues, and **you can contact
+> GitHub Support to report account, security, and abuse issues.**
+
+中文版：「你仍然可以联系 GitHub 支持以报告**帐户、安全和滥用问题**」。
+
+**「仓库」类目下的子项全是流程表单**（实测）：
+
+| 子项 | 形态 | 能用吗 |
+|---|---|---|
+| 删除 | URL 输入 + 「请确认您的操作」 | ❌ 会真删仓库 |
+| 存储库功能 | 复选框：模板/版本/见解/分支 | ❌ 都不匹配 |
+| Log request | 日志专用 | ❌ |
+| Remove LFS objects | LFS 专用 | ❌ |
+| 邀请/迁移和锁定状态/恢复/转移 | 各自操作流程 | ❌ |
+
+免费账户的顶层只有 6 个类目
 （Copilot / Codespaces / 仓库 / 教育版 / 登录问题 / 计费和付款），
 **没有「安全」类目** —— 找不到是账户层级的限制，不是你的问题。
 
 **判据**：表单里必须出现能写详细说明的大文本框。
-只有几个单选 + URL 输入框的是流程表单，继续往下试别的项。
+只有几个单选 + URL 输入框的是流程表单。
 
 ⚠️ **绝对不要选「删除」** —— 最后有「请确认您的操作」，
 选「删除」会真的删掉仓库。
-
-**备选**：若「存储库功能」也是流程表单，改用顶层类目里的「登录问题」——
-这是 fpt 账户唯一与账户安全相关的队列。
 
 社区里有个情况完全相同的人（Standard 账户、同样找不到这个选项），
 得到的官方回复是：
@@ -359,8 +371,9 @@ GitHub 官方《Removing sensitive data from a repository》明确要求提供�
 1. **GitHub Community Discussions** — <https://github.com/orgs/community/discussions>
    发到 `Repositories` 分类下。有 Community Manager 定期巡看并手工触发后台刷新，
    社区里确实有人靠这条路解决了同样的问题。
-   ⚠️ 那里是**公开**的，只说「我已提交工单，工单号 XXX」，
-   **不要贴仓库名和 SHA** —— 工单本身才是私密信道。
+   ⚠️ 那里是**公开**的 —— **不要贴仓库名、用户名、任何 SHA**
+   （包括 First Changed Commit）。只说「我已提交工单，工单号 XXX」。
+   公开处能说的只有结论层面的技术事实与工单号。
 2. **回复确认邮件线程**，不要重复开单 —— 重复单据会拖慢处理。
 3. **等后台 GC** — 几小时到几周。
 
