@@ -97,6 +97,34 @@ const SELF_FILES = new Set([
   'scripts/check-sensitive-history.js'
 ])
 
+/**
+ * 豁免标记
+ *
+ * 有些地方**必然**会出现敏感模式的字面量 —— 比如文档里展示
+ * 「违规的写法长这样：\"tlsClientRandom\": \"...\"」，
+ * 或者提交信息里解释规则的正则。
+ *
+ * 这些不是泄露，但逐个加豁免太啰嗦。所以约定一个标记：
+ *   在包含敏感模式的行末加 `pgrefuge:allow-sensitive`，
+ *   扫描器就跳过这一行。
+ *
+ * 豁免是**显式**的 —— 每加一个都要有人判断过。
+ * 滥用豁免等于关掉检查，所以标记本身要显眼。
+ */
+const ALLOW_MARK = 'pgrefuge:allow-sensitive'
+
+/** 逐行扫描，跳过带豁免标记的行 */
+function countMatches (text, pattern) {
+  const re = new RegExp(pattern.source, pattern.flags.includes('g') ? pattern.flags : pattern.flags + 'g')
+  let n = 0
+  for (const line of text.split('\n')) {
+    if (line.includes(ALLOW_MARK)) continue
+    const m = line.match(re)
+    if (m) n += m.length
+  }
+  return n
+}
+
 // ---------------------------------------------------------------------------
 // 工具函数
 // ---------------------------------------------------------------------------
@@ -114,16 +142,9 @@ function run (cmd) {
   }
 }
 
-function countMatches (text, pattern) {
-  const re = new RegExp(pattern.source, pattern.flags.includes('g') ? pattern.flags : pattern.flags + 'g')
-  const m = text.match(re)
-  return m ? m.length : 0
-}
-
 // ---------------------------------------------------------------------------
 // 主流程
 // ---------------------------------------------------------------------------
-
 function main () {
   // ---- 前置检查：必须能拿到完整历史 ----
   const isShallow = /true/.test(run('git rev-parse --is-shallow-repository').trim())
@@ -217,6 +238,15 @@ function main () {
   console.log('')
 
   // ---- 3. 提交信息扫描 ----
+  //
+  // 只扫**凭据**类，不扫环境字段类。
+  //
+  // 原因：提交信息里提到字段名或写规则示例是正常的说明文字
+  //（比如「规则改成 \"tlsClientRandom\": \"...\" 这样」）。
+  // 环境字段的泄露风险在**文件内容**里，不在提交信息里 ——
+  // cf.json 这种诊断文件是被当作文件提交的，提交信息只是描述。
+  //
+  // 凭据则相反：token 出现在提交信息里就是真泄露，必须扫。
   const msgProblems = []
   const msgs = run('git log --all --format=%H%x00%s%x00%b%x1e')
   for (const chunk of msgs.split('\u001e')) {
@@ -224,6 +254,7 @@ function main () {
     const [sha, subject, body] = chunk.split('\u0000')
     const text = (subject || '') + '\n' + (body || '')
     for (const r of RULES) {
+      if (r.kind !== '凭据') continue
       const n = countMatches(text, r.pattern)
       if (n > 0) {
         msgProblems.push({

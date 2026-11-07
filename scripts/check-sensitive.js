@@ -243,12 +243,27 @@ function readFile (abs) {
   }
 }
 
+/**
+ * 豁免标记
+ *
+ * 有些地方**必然**会出现敏感模式的字面量 —— 比如文档里展示
+ * 「违规的写法长这样：\"tlsClientRandom\": \"...\"」。
+ * 这些不是泄露，但逐个加豁免太啰嗦。所以约定一个标记：
+ *   在包含敏感模式的行末加 `pgrefuge:allow-sensitive`，
+ *   扫描器就跳过这一行。
+ *
+ * 豁免是**显式**的 —— 每加一个都要有人判断过。
+ */
+const ALLOW_MARK = 'pgrefuge:allow-sensitive'
+
 /** 找出匹配所在的行号与内容（脱敏后展示） */
 function locate (text, pattern) {
   const lines = text.split('\n')
   const hits = []
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i]
+    // 显式豁免的行跳过
+    if (line.includes(ALLOW_MARK)) continue
     const re = new RegExp(pattern.source, pattern.flags.includes('g') ? pattern.flags : pattern.flags + 'g')
     if (re.test(line)) {
       // 展示时把匹配部分替换掉，避免二次泄露到日志/终端
