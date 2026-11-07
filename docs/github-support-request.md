@@ -27,48 +27,72 @@ https://github.com/m34571581-blip/pgrefuge-forum
 
 ## 二、表单怎么选（重要）
 
-### ❌ 你看到的那个列表是错的类目
+### 你的账户只有 6 个顶层类目
 
-你截图里的那些选项 —— 邀请 / 迁移和锁定状态 / 恢复 / 转移 / 删除 /
-存储库功能 / Log request / Repository access issues / Remove LFS objects ——
-全部属于 **「代码存储库 / Repositories」** 类目。
+`help.github.com/support/contact/product-selection` 页面（已登录状态）显示：
 
-这个类目是**仓库运维操作**（邀请协作者、转移仓库、删仓库、删 LFS 对象），
-**不包含敏感数据清理**。所以在这里找不到是正常的，不是你的问题。
+| 常用产品 | 情况 |
+|---|---|
+| Copilot / Codespaces / **仓库** | 教育版 / **登录问题** / 计费和付款 |
 
-社区里有个和你情况**完全一样**的人（Standard 账户、同样找不到这个选项），
-最终得到的官方回复是：
+社区里有个和你情况**完全一样**的人（Standard 账户、同样找不到敏感数据清理选项），
+他看到的也是这六个 —— **没有「Something else」，也没有「安全」类目**。
+所以找不到是账户层级的限制，不是你的问题。
+
+### ✅ 路径：仓库 → 存储库功能
+
+关键：**「我们能提供什么帮助？」那一栏是单选，选不同的项，下面的表单会整个换掉。**
+
+你之前选的是「删除」，所以看到的是删仓库专用表单。
+**换成「存储库功能」** —— 那是仓库类目下的通用项，
+表单里会有可以写详细说明的文本框。
+
+```
+product-selection  →  仓库  →  「我们能提供什么帮助？」选「存储库功能」
+```
+
+**判据：表单里必须出现能写详细说明的大文本框。**
+如果还是只有几个单选 + URL 输入框，说明这一项也是流程表单，继续往下试别的项。
+
+> 💡 检查方法：走到表单最后看一眼有没有大文本框，
+> **不提交直接关掉**即可，不会误操作。
+
+> ⚠️ **绝对不要选「删除」**。那一项最后有
+> 「请确认您的操作。存储库一旦被彻底清除，将无法恢复」，
+> 选「删除」会**真的把仓库删掉**。
+
+### 🔄 备选：登录问题
+
+如果「存储库功能」也是流程表单（没有大文本框），
+改用顶层类目里的 **「登录问题」**。
+
+这是 fpt（免费/标准）账户**唯一与账户安全相关的队列**，
+而社区里验证过的路径正是：
 
 > github actually does provide support for sensitive data removal and security
 > issues on **free/standard accounts**, even though it says "technical support
 > not included" for general stuff. **security and account issues bypass that
 > restriction.**
 
-### ✅ 正确类目：账户 / 安全 / 滥用
+即：账户与安全类问题**不受付费限制**。
 
-**要选「账户、安全与滥用」那一类，不是「代码存储库」。**
+### 📌 为什么第一句话很重要
 
-路径（登录后从 <https://support.github.com/contact> 进）：
+免费账户的表单里**没有**「Type of Issue」这类下拉框
+（官方文档里那个含 "removing sensitive data" 的选项只对
+Enterprise / Cloud 账号开放）—— 所以只能靠正文自我定性。
 
-```
-顶层类目 → 账户 / 安全 / 滥用（Account, Security, or Abuse）
-```
+信的**第一句**必须写：
 
-在这个类目下找一个**带大文本框**的子类。
+> This is a sensitive-data removal request per the GitHub Docs page
+> "Removing sensitive data from a repository", not a technical support question.
 
-**判据只有一个：表单里必须出现能写详细说明的大文本框。**
-如果只有几个单选 + 一个 URL 输入框，那是流程表单（比如删仓库），退回重选。
-
-> ⚠️ **不要选「删除」**。那里面最后有一道
-> 「请确认您的操作。存储库一旦被彻底清除，将无法恢复」，
-> 选「删除」会**真的把仓库删掉**。
-
-> 💡 小技巧：可以先随便填一下走到最后，看有没有「详细描述」文本框，
-> 不提交直接关掉，再回退重选。这样不会误提交。
+这句话是社区里验证过的路由技巧 —— 让工单被分到正确的团队，
+而不是被打回模板回复。
 
 ### 关于 `?flow=clear_cached_views`
 
-这个 flow 参数**在登录后会被丢掉** —— 实测：
+这个 flow 参数**登录后会被丢掉** —— 实测：
 
 ```
 未登录：/contact?flow=clear_cached_views
@@ -78,27 +102,19 @@ https://github.com/m34571581-blip/pgrefuge-forum
 登录后：仍然回到 /support/contact 的一般分类页，flow 丢失
 ```
 
-所以它**不能用来直达表单**，只能作为「登录时保留上下文」的提示。
-（这个参数在 DMCA takedown 的处理流程里被公开引用过，
-但那条流程走的是另一套工单系统。）
-
-**结论：靠 flow 参数走不通，靠选对类目才行。**
-
-### 📌 信的第一句话要写明性质
-
-因为类目可能不完全对，信的**第一句**要自我定性，让支持知道该转给谁：
-
-> This is a sensitive-data removal request per the GitHub Docs page
-> "Removing sensitive data from a repository", not a technical support question.
-
-社区里有人靠这一句话让工单被正确路由，而没有被打回模板回复。
+它**不能用来直达表单**，只能作为「登录时保留上下文」的提示。
+**结论：靠 flow 参数走不通，靠选对类目 + 选对子项才行。**
 
 
 ## 三、Subject（标题栏）
 
 ```
-Garbage collection request: unreachable objects still served after history rewrite
+Sensitive data removal request: unreachable objects still served by SHA after history rewrite
 ```
+
+**为什么这么写**：标题栏也是路由依据。把「sensitive data removal request」
+放在最前面，比先写「garbage collection」更容易被分到正确的团队 ——
+后者看起来像技术问题，前者明确指向官方文档里那条专门流程。
 
 ---
 
@@ -312,6 +328,11 @@ GitHub 官方《Creating a support ticket》写着：
 
 如果账号显示「Technical support not included」，那只是说**常规技术支持**不包含，
 不代表敏感数据清理会被拒 —— 官方文档明确把这类请求归为不同类型处理。
+
+具体到你的账户层级：只有 6 个顶层类目（Copilot / Codespaces / 仓库 /
+教育版 / 登录问题 / 计费和付款），没有「安全」类目。
+所以走「**仓库 → 存储库功能**」，
+不行就换「**登录问题**」（fpt 唯一与账户安全相关的队列）。
 
 ### 备选路径
 
