@@ -27,55 +27,72 @@ https://github.com/m34571581-blip/pgrefuge-forum
 
 ## 二、表单怎么选（重要）
 
-### ✅ 首选：直接用专用入口
+### ❌ 你看到的那个列表是错的类目
+
+你截图里的那些选项 —— 邀请 / 迁移和锁定状态 / 恢复 / 转移 / 删除 /
+存储库功能 / Log request / Repository access issues / Remove LFS objects ——
+全部属于 **「代码存储库 / Repositories」** 类目。
+
+这个类目是**仓库运维操作**（邀请协作者、转移仓库、删仓库、删 LFS 对象），
+**不包含敏感数据清理**。所以在这里找不到是正常的，不是你的问题。
+
+社区里有个和你情况**完全一样**的人（Standard 账户、同样找不到这个选项），
+最终得到的官方回复是：
+
+> github actually does provide support for sensitive data removal and security
+> issues on **free/standard accounts**, even though it says "technical support
+> not included" for general stuff. **security and account issues bypass that
+> restriction.**
+
+### ✅ 正确类目：账户 / 安全 / 滥用
+
+**要选「账户、安全与滥用」那一类，不是「代码存储库」。**
+
+路径（登录后从 <https://support.github.com/contact> 进）：
 
 ```
-https://support.github.com/contact?flow=clear_cached_views
+顶层类目 → 账户 / 安全 / 滥用（Account, Security, or Abuse）
 ```
 
-这个 `flow` 参数是 GitHub **专门为「清理缓存视图」设的**——
-绕过所有分类选择，直接进正确的表单。
-
-实测确认（未登录状态）：
-
-```
-GET /contact?flow=clear_cached_views
-  → 302  Location: https://help.github.com/contact?flow=clear_cached_views
-  → 302  Location: https://help.github.com/request/landing
-  → 200  「Sign in for Software Support and Product Help」
-```
-
-**参数在两次重定向中都被保留了** —— 说明服务端认得这个 flow 值。
-（不存在的 flow 参数不会这样被保留。）
-
-登录后就能看到针对这个场景的专用表单。
-
-### ⚠️ 如果手动选分类：不要选「删除」
-
-Support 的表单是**按分类动态生成**的，不同分类问的问题完全不同。
-
-**「删除」分类是删整个仓库的** —— 里面最后有一道
-「请确认您的操作。存储库一旦被彻底清除，将无法恢复」，
-选「删除」会**真的把仓库删掉**，不可恢复。
-
-如果 `?flow=clear_cached_views` 不可用（比如被重定向到了分类页），
-在 `代码存储库 / Repositories` 分类下找**带大文本框**的子类。
+在这个类目下找一个**带大文本框**的子类。
 
 **判据只有一个：表单里必须出现能写详细说明的大文本框。**
 如果只有几个单选 + 一个 URL 输入框，那是流程表单（比如删仓库），退回重选。
 
-> 小技巧：可以先随便填一下走到最后，看有没有「详细描述」文本框，
+> ⚠️ **不要选「删除」**。那里面最后有一道
+> 「请确认您的操作。存储库一旦被彻底清除，将无法恢复」，
+> 选「删除」会**真的把仓库删掉**。
+
+> 💡 小技巧：可以先随便填一下走到最后，看有没有「详细描述」文本框，
 > 不提交直接关掉，再回退重选。这样不会误提交。
+
+### 关于 `?flow=clear_cached_views`
+
+这个 flow 参数**在登录后会被丢掉** —— 实测：
+
+```
+未登录：/contact?flow=clear_cached_views
+         → 302  help.github.com/contact?flow=clear_cached_views   ← 参数保留
+         → 302  help.github.com/request/landing                   ← 登录页
+
+登录后：仍然回到 /support/contact 的一般分类页，flow 丢失
+```
+
+所以它**不能用来直达表单**，只能作为「登录时保留上下文」的提示。
+（这个参数在 DMCA takedown 的处理流程里被公开引用过，
+但那条流程走的是另一套工单系统。）
+
+**结论：靠 flow 参数走不通，靠选对类目才行。**
 
 ### 📌 信的第一句话要写明性质
 
-因为分类可能不完全对，信的**第一句**要自我定性，让支持知道该转给谁：
+因为类目可能不完全对，信的**第一句**要自我定性，让支持知道该转给谁：
 
 > This is a sensitive-data removal request per the GitHub Docs page
 > "Removing sensitive data from a repository", not a technical support question.
 
 社区里有人靠这一句话让工单被正确路由，而没有被打回模板回复。
----
+
 
 ## 三、Subject（标题栏）
 

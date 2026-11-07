@@ -286,27 +286,43 @@ GitHub 官方《Removing sensitive data from a repository》明确要求提供�
 > - **Remove cached views**
 > - If LFS Objects are involved, delete and/or purge the orphaned LFS objects
 
-#### 提交入口：优先用专用 flow 参数
+#### 提交入口：选对类目
+
+**要选「账户 / 安全 / 滥用」类目，不是「代码存储库」。**
+
+「代码存储库」类目下的选项是仓库运维操作（邀请 / 迁移 / 恢复 / 转移 /
+删除 / 存储库功能 / Remove LFS objects），**不包含敏感数据清理**。
+找不到是正常的，不是你的问题。
+
+社区里有个情况完全相同的人（Standard 账户、同样找不到这个选项），
+得到的官方回复是：
+
+> github actually does provide support for sensitive data removal and security
+> issues on **free/standard accounts**, even though it says "technical support
+> not included" for general stuff. **security and account issues bypass that
+> restriction.**
+
+所以**免费账户也能提** —— 「technical support not included」只针对常规技术支持。
+
+**判据**：表单里必须出现能写详细说明的大文本框。
+只有几个单选 + URL 输入框的是流程表单（比如删仓库），退回重选。
+
+**不要选「删除」** —— 最后一道「请确认您的操作」选「删除」不可恢复。
+
+#### 关于 `?flow=clear_cached_views`
+
+这个 flow 参数**登录后会被丢掉**：
 
 ```
-https://support.github.com/contact?flow=clear_cached_views
+未登录：/contact?flow=clear_cached_views
+         → 302  help.github.com/contact?flow=clear_cached_views   ← 参数保留
+         → 302  help.github.com/request/landing                   ← 登录页
+
+登录后：仍然回到 /support/contact 的一般分类页，flow 丢失
 ```
 
-这是 GitHub **专门为「清理缓存视图」设的 flow**，绕过分类选择直达正确表单。
-实测确认（未登录状态）：
-
-```
-GET /contact?flow=clear_cached_views
-  → 302  Location: help.github.com/contact?flow=clear_cached_views
-  → 302  Location: help.github.com/request/landing
-  → 200  登录页
-```
-
-**参数在两次重定向中都被保留** —— 说明服务端认得这个 flow 值。
-
-如果手动选分类，**不要选「删除」** —— 那是删整个仓库的，
-最后一道「请确认您的操作」选「删除」不可恢复。
-判据是「表单里必须有能写详细说明的大文本框」。
+它**不能用来直达表单**，只能作为「登录时保留上下文」的提示。
+结论：**靠 flow 参数走不通，靠选对类目才行。**
 
 #### 免费账户能不能提？
 
