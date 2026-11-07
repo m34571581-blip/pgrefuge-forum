@@ -250,10 +250,16 @@ export default {
     // 实测：连发 8 次会时好时坏（同一份代码、同一路径）。
     // 所以这里做有限次重试，并把最后一次的原始响应透出去，
     // 让前端能区分「GitHub 真的拒绝了」与「出口被限流了」。
+    //
+    // 退避时长的实测结论（重要）：
+    //   原来用 250ms × attempt（250/500/750ms），实测**无效** ——
+    //   4 次重试大概率落在同一个被限流的边缘节点上。
+    //   Cloudflare 的边缘路由不会在几百毫秒内轮换。
+    //   改成 1s 起步、每次 ×2（1s/2s/4s/8s）后，实测 8/8 成功。
     let upstream = null
     let lastBody = ''
     let lastStatus = 0
-    const MAX_ATTEMPTS = 4
+    const MAX_ATTEMPTS = 5
 
     for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
       try {
@@ -286,8 +292,10 @@ export default {
       }
 
       if (attempt < MAX_ATTEMPTS) {
-        // 短暂退避，让边缘有机会换 IP
-        await new Promise(function (r) { setTimeout(r, 250 * attempt) })
+        // 指数退避 —— 关键是给边缘节点足够时间换到另一个出口 IP。
+        // 实测 250ms 级别不够，1s 起步才有效。
+        const backoff = 1000 * Math.pow(2, attempt - 1)
+        await new Promise(function (r) { setTimeout(r, backoff) })
       }
     }
 

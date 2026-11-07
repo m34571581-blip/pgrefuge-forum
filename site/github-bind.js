@@ -175,6 +175,14 @@ async function pollForDeviceToken (dev) {
   let interval = (dev.interval || 5) * 1000
   const deadline = Date.now() + ((dev.expires_in || 900) * 1000)
 
+  // 出口 IP 被限流时的连续失败计数
+  //
+  // GitHub 对被限流的出口 IP 会返回纯文本 "Not Found"（404），
+  // 而不是标准错误 JSON。这不是客户端错误 —— 是中转侧的出口问题。
+  // 中转已经自己重试过，但极端情况下仍可能失败；
+  // 这里再兜一层：等久一点重试，最多 3 次。
+  let rateLimitStreak = 0
+
   while (Date.now() < deadline) {
     await sleep(interval)
 
@@ -197,7 +205,27 @@ async function pollForDeviceToken (dev) {
     if (err === 'authorization_pending') continue
     if (err === 'expired_token') throw new Error('授权码已过期，请重新发起绑定')
     if (err === 'access_denied') throw new Error('你取消了授权')
+
+    // GitHub 的 OAuth 端点被限流时返回的是纯文本 "Not Found"，
+    // 中转原样透传 —— 前端 JSON.parse 失败会抛错，被上面的 catch 吞掉
+    // 并继续轮询（间隔不变），这本身没问题。
+    //
+    // 但中转也可能包成 {"error":"Not Found"} 返回 —— 那种要单独处理，
+    // 否则会被当成「GitHub 真的拒绝了授权」而中断流程。
+    const raw = typeof payload === 'string' ? payload.trim() : ''
+    const errText = (err === 'Not Found') ? 'not found' : String(err || '')
+    if (/^not found$/i.test(raw) || errText === 'not found') {
+      if (rateLimitStreak < 3) {
+        rateLimitStreak++
+        // 指数退避：等更久，让中转有机会换到另一个边缘节点
+        interval = Math.max(interval, 3000 * Math.pow(2, rateLimitStreak - 1))
+        continue
+      }
+      throw new Error('GitHub 暂时拒绝了请求（出口被限流），请稍后重试')
+    }
+
     if (err) throw new Error('授权失败：' + err)
+    if (raw) throw new Error('授权失败：' + raw.slice(0, 80))
   }
   throw new Error('授权超时，请重新发起绑定')
 }
