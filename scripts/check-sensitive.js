@@ -347,6 +347,8 @@ function main () {
       const lines = text.split('\n')
       const hits = []
       for (let i = 0; i < lines.length; i++) {
+        // 显式豁免的行跳过
+        if (lines[i].includes(ALLOW_MARK)) continue
         const re = new RegExp(r.pattern.source, 'g')
         let m
         while ((m = re.exec(lines[i])) !== null) {
