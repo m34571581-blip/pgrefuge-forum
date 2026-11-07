@@ -113,28 +113,27 @@ echo "→ 部署 Worker：$WORKER_NAME …"
 WHOAMI2="$(npx --yes wrangler@latest whoami 2>&1 || true)"
 ACCOUNT_ID="$(echo "$WHOAMI2" | grep -oE '[0-9a-f]{32}' | head -1)"
 
-if ! echo "$WHOAMI2" | grep -qi "workers.dev"; then
-  echo
-  echo "⚠ 首次部署需要先注册 workers.dev 子域名（一次性操作）。"
-  echo
-  if [ -n "$ACCOUNT_ID" ]; then
-    echo "  请打开这个链接完成注册："
-    echo "    https://dash.cloudflare.com/$ACCOUNT_ID/workers/onboarding"
-  else
-    echo "  请打开 Cloudflare Dashboard → Workers & Pages → Onboarding："
-    echo "    https://dash.cloudflare.com/ → Workers & Pages"
-  fi
-  echo
-  echo "  点「Get started」→ 选 Free 计划 → 输入一个子域名前缀（比如 pgrefuge）"
-  echo "  注册完再重跑本脚本。"
-  echo
-  exit 1
-fi
-
+#
+# ---- 部署 Worker ----
 #
 # 部署失败时把 wrangler 的输出完整打出来 ——
 # wrangler 的错误信息在最后几行（X [ERROR] ...），
 # 但前面有大量 banner，只看尾部容易漏掉关键信息。
+#
+# 关于「workers.dev 子域名是否已注册」：
+#
+#   最早这里有个前置检查，用「whoami 输出里有没有 workers.dev」来判断 ——
+#   错。子域名**不会**出现在 whoami 输出里，
+#   所以即使早就注册好了也永远误判，脚本每次都让用户去注册。
+#   试过改用 Cloudflare API 查 /workers/subdomain 也不行 ——
+#   凭据文件路径在各平台都不一样（Windows 上是
+#   AppData/Roaming/xdg.config/.wrangler/），写死路径不可靠。
+#
+#   现在的做法：**直接部署，让 wrangler 自己判断**。
+#   子域名没注册时它会报明确的错误，我们据此给指引；
+#   已注册时直接部署成功，什么都不用问。
+#   这比任何预检查都可靠 —— 预检查本身可能出错，部署不会。
+#
 DEPLOY_OUT="$(npx --yes wrangler@latest deploy "$WORKER_FILE" \
   --name "$WORKER_NAME" \
   --compatibility-date 2024-11-01 \
@@ -148,6 +147,26 @@ if [ "$DEPLOY_OK" != "1" ]; then
   echo " ✗ 部署失败"
   echo "==============================================="
   echo
+
+  # 子域名没注册是最常见的原因，而且 wrangler 的报错需要转译一下
+  # （原始信息是英文的 "Would you like to register a workers.dev subdomain now?"）
+  if echo "$DEPLOY_OUT" | grep -qi "subdomain"; then
+    echo "原因：还没注册 workers.dev 子域名（首次部署必需，一次性操作）。"
+    echo
+    if [ -n "$ACCOUNT_ID" ]; then
+      echo "  请打开这个链接完成注册："
+      echo "    https://dash.cloudflare.com/$ACCOUNT_ID/workers/onboarding"
+    else
+      echo "  请打开 Cloudflare Dashboard → Workers & Pages → Onboarding："
+      echo "    https://dash.cloudflare.com/ → Workers & Pages"
+    fi
+    echo
+    echo "  点「Get started」→ 选 Free 计划 → 输入一个子域名前缀（比如 pgrefuge）"
+    echo "  注册完再重跑本脚本。"
+    echo
+    exit 1
+  fi
+
   echo "常见原因："
   echo "  · 未登录 Cloudflare —— 跑 npx wrangler login"
   echo "  · API Token 权限不足 —— 需 'Edit Cloudflare Workers' 模板"
@@ -167,10 +186,11 @@ echo
 echo "1) 把上面的 Worker 地址填进 pgrefuge-forum/site/config.js："
 echo
 echo "     oauthRelayBaseUrl: 'https://<上面的地址>',"
-echo "     githubOAuthClientId: 'Iv1.<你的 Client ID>',"
+echo "     githubOAuthClientId: '<你的 Client ID>',"
 echo
 echo "2) Client ID 来自 GitHub → Settings → Developer settings →"
-echo "   OAuth Apps → New OAuth App（记得勾选 Enable Device Flow）"
+echo "   OAuth Apps → 你的应用（记得勾选 Enable Device Flow）"
+echo "   Client ID 是公开标识符，不是密钥，可以放在前端。"
 echo
 echo "3) 提交 config.js 的改动，Actions 会自动重新部署站点。"
 echo
