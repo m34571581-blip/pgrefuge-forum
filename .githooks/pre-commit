@@ -1,0 +1,23 @@
+#!/bin/sh
+#
+# 提交前的敏感信息检查
+#
+# 为什么放在 hook 里：
+#   本机状态文件（wrangler 的 .wrangler/、各种 .cache/）很容易被
+#   `git add -A` 一把带进去。等推上去再改就晚了 ——
+#   GitHub 上按 SHA 直取 blob 依然有效，即使后来删掉文件。
+#   所以必须在**入库前**拦。
+#
+# 想跳过（比如确认某处命中无害）：git commit --no-verify
+#
+set -e
+
+ROOT=$(git rev-parse --show-toplevel)
+cd "$ROOT"
+
+if ! command -v node >/dev/null 2>&1; then
+  echo "⚠ 跳过敏感信息检查（未找到 node）"
+  exit 0
+fi
+
+exec node scripts/check-sensitive.js --staged

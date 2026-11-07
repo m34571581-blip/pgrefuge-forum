@@ -6,5 +6,44 @@ data/.raw-cache.json
 _live.png
 _site/
 
-# wrangler 本地开发的临时状态（sqlite / bundle 等）
-.wrangler/
+# ---- 工具链的本机状态目录 ----
+#
+# 这些目录里装的是「这台机器/这个账号的运行时状态」，
+# 不是项目代码。进 git 就等于把本机环境公开出去。
+#
+# 曾经的教训：wrangler dev 在 docs/.wrangler/ 下留了 35 个文件，
+# 里面有 Cloudflare 边缘节点诊断（出口 IP、地理位置、TLS 握手随机数、
+# 运营商 ASN）。已用 git-filter-repo 从历史清除，但代价很大。
+#
+# 通用做法：先想清楚「这个工具会不会在本目录留下状态」，
+# 留下就加进这里 —— 别等推上去再补救。
+
+.wrangler/                    # Cloudflare Workers 本机状态
+.dev.vars                      # Cloudflare 本地密钥
+.netlify/                      # Netlify 本机状态
+.vercel/                       # Vercel 本机状态
+.firebase/                     # Firebase 本机状态
+.cache/                        # 各种框架的构建缓存
+__pycache__/
+*.pyc
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# 环境变量与密钥
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# 本地数据库状态（sqlite 的 -wal/-shm 是运行中的临时文件）
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+*.db
+
+# 编辑器与系统
+.vscode/
+.idea/
+Thumbs.db
