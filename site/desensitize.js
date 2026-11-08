@@ -1104,32 +1104,32 @@
      * 断言只挡住「我」，捕获组照旧吃进「们在湖南」——输出成了「我某校读研」，
      * 虚词和地名一起消失。断言下沉到每个字符后才修好。
      */
-    
+
     /** 泛称 + 称谓（p1 保护名单） */
     const GENERIC =
       '(我们|他们|其他|某位|哪位|这位|那位|这个|那个|你的|他的|她的|一位|该|各|所有|的|骂|批评|指责|催|逼|卷|折磨|折腾)'
-    
+
     /** 称谓（p7 目标） */
     const TITLES = '(老师|导师|副教授|教授|讲师|博士|博导|系主任)'
-    
+
     /** 泛称 + 机构词（p2 保护名单） */
     const GENERIC_ORG =
       '(今天|明天|昨天|前天|后天|上午|下午|晚上|早上|中午|最近|目前|每次|平时|每天|每周|每月|通常|经常|我们|你们|他们|这个|那个|一个|该|隔壁|附近|对面|旁边)'
-    
+
     /** 机构词（p4/p5/p6 目标） */
     const ORGS = '(大学|学校|院校|学院|学系|课题组|实验室|科研团队|团队)'
-    
+
     /**
      * 虚词黑名单 —— 捕获的机构名里不允许出现这些字
      * 这份名单决定「捕获组」能吃进多少字符。
      */
     const VIRTUAL =
       '(?!我|你|他|她|它|咱|们|这|那|个|是|去|回|到|达|把|被|给|跟|和|与|但|就|也|还|很|更|不|没|有|找|叫|让|对|从|向|其|之|所|及|或|在|着|过|了|吗|呢|吧|啊|又|再|才|只|最|太|挺|将|已)'
-    
+
     /** 捕获组：每个字符前都断言不是虚词 */
     const NAME = '(?:' + VIRTUAL + '[一-龥A-Za-z0-9])'
     const NAME_CN = '(?:' + VIRTUAL + '[一-龥])'
-    
+
     /**
      * 名称与机构词/称谓之间的分隔符
      *
@@ -1156,7 +1156,7 @@
     const SEP =
       '(?<sep>(?:(?![一-龥])[\\s\\-–—_·・' +
       '－~～/\\\\])*?)'
-    
+
     /**
      * 可选的成对括号（包住后缀）
      *
@@ -1181,7 +1181,7 @@
      */
     const BRACKET_OPEN = '(?:[\\u005B\\u0028\\uFF08\\u3010\\u300A\\u3008\\u300C\\u300E]\\s*)?'
     const BRACKET_CLOSE = '(?:[\\u005D\\u0029\\uFF09\\u3011\\u300B\\u3009\\u300D\\u300F])?'
-    
+
     /**
      * 英文脱敏规则
      *
@@ -1189,7 +1189,7 @@
      * 每条规则都要求「称谓 + 至少一个看起来像姓名的词」同时出现，
      * 避免误伤普通英文（the teacher、my professor 这类不带姓名的表达）。
      */
-    
+
     /**
      * 生成英文词的大小写变体正则
      *
@@ -1216,25 +1216,25 @@
         })
         .join('|')
     }
-    
+
     /** 缩写式称谓（后面跟姓）：Mr.Liu / MR.LIU / Dr. Smith */
     const EN_TITLE_DOT = '(?:' + enVariants(['Mr', 'Mrs', 'Ms', 'Dr', 'Prof', 'Sr', 'Jr']) + ')'
-    
+
     /** 完整称谓（后面跟姓）：Professor Wang / PROFESSOR WANG / Advisor Liu */
     const EN_TITLE = '(?:' + enVariants([
       'Professor', 'Advisor', 'Supervisor', 'Teacher', 'Tutor',
       'Mentor', 'Coordinator', 'Director', 'Head', 'Chair'
     ]) + ')'
-    
+
     /** 小写职衔（后面跟姓）：advisor Liu / advisor LIU */
     const EN_TITLE_LOWER = '(?:advisor|supervisor|mentor|tutor)'
-    
+
     /** 英文机构词（支持全大写：TSINGHUA UNIVERSITY） */
     const EN_ORG = '(?:' + enVariants([
       'University', 'College', 'Institute', 'Laboratory', 'Lab',
       'School', 'Academy', 'Polytechnic'
     ]) + ')'
-    
+
     /**
      * 像英文姓名的词
      *
@@ -1253,7 +1253,7 @@
      */
     const EN_NAME_STRICT = '[A-Z][a-z]{1,15}'
     const EN_NAME_ANY = '[A-Z][A-Za-z]{1,15}'
-    
+
     /**
      * 姓的可选后缀与连字符部分
      *
@@ -1277,10 +1277,10 @@
       EN_NAME_ANY + '(?:\\s*-\\s*' + EN_NAME_ANY + ')?'
     const EN_NAME_SUFFIX =
       '(?:(?<![A-Za-z])\\s+(?<sfx>' + enVariants(['Jr', 'Sr', 'II', 'III', 'IV']) + ')\\.?)?'
-    
+
     /** 像英文机构名的词组：Tsinghua / New York / TSINGHUA */
     const EN_ORG_NAME = '[A-Z][a-zA-Z]{1,20}(?:\\s+[A-Z][a-zA-Z]{1,20}){0,2}'
-    
+
     // 与服务端 chr() 标记同构（用 String.fromCharCode，避免源码里出现控制字符）
     /**
      * 姓名识别模块（分层识别）
@@ -1299,7 +1299,7 @@
      * 词典由 build-name-dict.py 从真实语料生成，可复现、可更新。
      */
     const NAME_DETECT = __require("name-detector")
-    
+
     /**
      * 标识符识别模块（学号 / 手机号 / 邮箱 / 社交账号 / 房间号）
      *
@@ -1310,7 +1310,7 @@
      * 详见 identifier-detector.js 的头部注释。
      */
     const IDENT_DETECT = __require("identifier-detector")
-    
+
     /**
      * 拼音姓名识别模块（pinyin-detector.js）
      *
@@ -1322,7 +1322,7 @@
      * 详见 pinyin-detector.js 的头部注释。
      */
     const PINYIN_DETECT = __require("pinyin-detector")
-    
+
     /**
      * 院校简称识别模块（institution-detector.js）
      *
@@ -1333,12 +1333,12 @@
      * 详见 institution-detector.js 的头部注释。
      */
     const INSTITUTION_DETECT = __require("institution-detector")
-    
+
     const M1 = String.fromCharCode(1) // 泛称保护
     const M2 = String.fromCharCode(2) // 替换结果包裹
     const M3 = String.fromCharCode(3) // 「的」占位
     const M4 = String.fromCharCode(4) // 泛称 + 机构词保护
-    
+
     /**
      * 敏感信息类型的展示文案
      *
@@ -1362,7 +1362,7 @@
       personEn: '英文姓名',
       orgEn: '英文机构名'
     }
-    
+
     /** 英文版标签 */
     const HIT_LABELS_EN = {
       identifier: 'ID / Number',
@@ -1380,7 +1380,7 @@
       personEn: 'English name',
       orgEn: 'English organization'
     }
-    
+
     /**
      * 占位符表
      *
@@ -1412,7 +1412,7 @@
       personEn: '某',
       orgEn: '某'
     }
-    
+
     const MASK_EN = {
       school: '___',
       college: '___',
@@ -1422,7 +1422,7 @@
       personEn: 'Someone',
       orgEn: '___'
     }
-    
+
     /**
      * 清掉没有配对左括号的闭合符号
      *
@@ -1458,14 +1458,14 @@
       }
       return out
     }
-    
+
     /** 判定一段文本的主体语言：'cn' / 'en' */
     function detectLang(text) {
       const cn = (String(text).match(/[一-龥]/g) || []).length
       const en = (String(text).match(/[A-Za-z]/g) || []).length
       return cn >= en ? 'cn' : 'en'
     }
-    
+
     /**
      * 英文常见姓氏（107 个）
      *
@@ -1499,7 +1499,7 @@
       'du', 'su', 'wei', 'cheng', 'lv', 'ding', 'shen', 'ren', 'yao', 'lu',
       'fu', 'zhong', 'cui', 'tan', 'liao', 'fan', 'jin', 'qian', 'shu', 'meng'
     ])
-    
+
     /**
      * 判断一个英文词是否是常见姓氏（大小写不敏感）
      */
@@ -1507,7 +1507,7 @@
       if (!word) return false
       return EN_SURNAMES.has(word.toLowerCase())
     }
-    
+
     /**
      * 标识符类型 → 占位符 key
      */
@@ -1521,7 +1521,7 @@
       }
       return map[kind] || 'identifier'
     }
-    
+
     /**
      * 英文称谓词表
      *
@@ -1535,12 +1535,12 @@
       'coordinator', 'director', 'head', 'chair',
       'boss', 'colleague', 'friend', 'roommate', 'partner'
     ])
-    
+
     function isEnTitleWord (word) {
       if (!word) return false
       return EN_TITLE_WORDS.has(word.toLowerCase())
     }
-    
+
     /**
      * 判断一个英文片段是否「像姓」（宽松版）
      *
@@ -1554,7 +1554,7 @@
       if (!fragment) return false
       const words = fragment.trim().split(/\s+/).filter(Boolean)
       if (!words.length) return false
-    
+
       // 只看**第一段**（姓本身）。
       //
       // 为什么：匹配时为了兼容「名 + 姓」，正则会顺带吞掉后面的普通词
@@ -1571,7 +1571,7 @@
       if (w.length < 2) return false
       return true
     }
-    
+
     /**
      * 判断一个英文片段是否「像姓名」
      *
@@ -1609,12 +1609,12 @@
       'good', 'bad', 'best', 'worst', 'long', 'short', 'high', 'low', 'big',
       'him', 'her', 'them', 'sorry', 'thanks', 'please', 'hello', 'yes'
     ])
-    
+
     function looksLikeEnName (fragment) {
       if (!fragment) return false
       const words = fragment.trim().split(/\s+/).filter(Boolean)
       if (!words.length) return false
-    
+
       // 多段（名 + 姓）：**每一段都**必须像姓名。
       //
       // 为什么不能用「有一段像就行」：
@@ -1625,7 +1625,7 @@
       if (words.length >= 2) {
         return words.every(function (w) { return looksLikeEnName(w) })
       }
-    
+
       const w = words[0]
       // 全大写 → 缩写，不动
       if (/^[A-Z]{2,}$/.test(w)) return false
@@ -1637,7 +1637,7 @@
       if (/^[a-z]{2,}$/.test(w) && !EN_COMMON_WORDS.has(w)) return true
       return false
     }
-    
+
     /**
      * 英文「指人线索」词表
      *
@@ -1675,7 +1675,7 @@
       // 自称类
       'name', 'myself'
     ]
-    
+
     /**
      * 判断一个片段附近是否有「英文指人线索」
      *
@@ -1691,7 +1691,7 @@
       const w = window || 24
       const before = ' ' + text.slice(Math.max(0, start - w), start).toLowerCase() + ' '
       const after = ' ' + text.slice(end, Math.min(text.length, end + w)).toLowerCase() + ' '
-    
+
       for (const c of EN_CUE_WORDS) {
         // 词边界匹配，避免 "like" 命中 "likely"、"class" 命中 "classmate" 之外的干扰
         const re = new RegExp('(^|[^a-z])' + c.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '([^a-z]|$)')
@@ -1699,7 +1699,7 @@
       }
       return null
     }
-    
+
     /**
      * 统计子串在文本中的出现次数（不重叠）
      */
@@ -1713,7 +1713,7 @@
       }
       return n
     }
-    
+
     /**
      * 求某个片段在文本中是「第几次出现」（从 0 起）
      *
@@ -1735,7 +1735,7 @@
       }
       return nth
     }
-    
+
     /**
      * 求某个片段在文本中第 n 次出现的起始位置（找不到返回 -1）
      */
@@ -1747,7 +1747,7 @@
       }
       return idx
     }
-    
+
     /**
      * 找出英文裸全名候选（无称谓、无关系词的「名 + 姓」）
      *
@@ -1778,7 +1778,7 @@
       }
       return out
     }
-    
+
     /**
      * 脱敏
      *
@@ -1795,7 +1795,7 @@
       const src = text || ''
       const hits = []
       let out = src
-    
+
       // 用户已确认的片段 → 强制脱敏
       //
       // 为什么要这个回灌接口：
@@ -1807,7 +1807,7 @@
       // 前端只负责"收集用户点了哪些"，不自己写脱敏规则 ——
       // 否则脱敏逻辑就有两份，浏览器和论坛同步管道会漂移。
       const confirmed = (options && options.confirmed) || []
-    
+
       // 确认项按「文本 + 第几次出现」索引
       //
       // 为什么不能只按文本匹配：
@@ -1826,10 +1826,10 @@
         if (!confirmedMap.has(key)) confirmedMap.set(key, new Set())
         confirmedMap.get(key).add(nth)
       }
-    
+
       // 每个文本已确认的次数计数器（用于取「第 N 次」的 N）
       const confirmedSeen = new Map()
-    
+
       /**
        * 判断某个位置的片段是否被用户确认
        *
@@ -1842,17 +1842,17 @@
         if (!set || !set.size) return false
         return set.has(occurrenceIndex(haystack, fragment, start))
       }
-    
+
       // 已按用户确认强制脱敏的片段数
       let confirmedApplied = 0
-    
+
       // p1 泛称 + 称谓保护
       out = out.replace(new RegExp(GENERIC + TITLES, 'g'), '$1' + M1 + '$2')
       // p2 泛称 + 机构词保护
       out = out.replace(new RegExp(GENERIC_ORG + ORGS, 'g'), '$1' + M4 + '$2' + M4)
       // p3 「的」占位
       out = out.replace(/的/g, M3)
-    
+
       // 替换并统计命中数
       // 注意：使用 callback 时替换串里的 $1/$2 不会被解析，必须手动取捕获组
       //
@@ -1882,7 +1882,7 @@
         })
         if (n > 0) hits.push({ kind, count: n, lang: lang || 'cn' })
       }
-    
+
       // p4 学校 / 院校 → 某校
       step(new RegExp('(' + NAME_CN + '{1,8})' + SEP + BRACKET_OPEN + '(大学|学校|院校)' + BRACKET_CLOSE, 'g'), 'school',
         function (m, g1, g2, g3, sep) { return M2 + MASK_CN.school + (sep || '') + M2 }, 'cn')
@@ -1915,7 +1915,7 @@
       //      判据：X 是「名」「别」「氏」这类通用词时跳过。
       step(/姓(?!(名|别|氏|氏族|名册|名学))([一-龥]{1,2})/g, 'surname',
         function (m, g1) { return M2 + MASK_CN.surname + M2 }, 'cn')
-    
+
       // ---- 英文补充规则 ----
       //
       // 放在中文规则之后：中文规则会把「的」换成 M3，英文规则不受影响；
@@ -1923,7 +1923,7 @@
       //
       // 英文的语序和中文相反 —— 英文是「称谓 + 姓」（Professor Wang），
       // 中文是「姓 + 称谓」（王教授）。两种都覆盖，但主规则必须是「称谓 + 姓」。
-    
+
       // ---- 英文姓名识别：统一由 L2b 的 b1~b5 处理 ----
       //
       // 曾经这里有 e1~e7 七条独立规则，但它们与 L2b 的 b1~b5 **功能重叠**，
@@ -1939,7 +1939,7 @@
       //
       // 老规则的问题是覆盖不全（大小写敏感），新规则 b1~b5 覆盖完整。
       // 所以正确做法是**只保留一套** —— 删除 e1~e7，规则统一在 L2b。
-    
+
       // ---- L2 上下文加权的姓名识别 ----
       //
       // 处理两类形态上像名字、但缺少称谓锚点的片段：
@@ -1956,9 +1956,9 @@
       // L3 兜底：形态像但没线索的，**不自动替换**，而是记进 suspected，
       //          由前端提示用户「这里可能有 N 处姓名未脱敏」。
       //          这是整套架构的关键 —— 把「引擎不知道」从静默失败变成显式告警。
-    
+
       const suspected = []
-    
+
       // ---- L2a：中文姓名 ----
       {
         const shapes = NAME_DETECT.findNameShaped(out)
@@ -1969,7 +1969,7 @@
           const cue = NAME_DETECT.findCue(out, sp.start, sp.end)
           // 用户已确认的片段 → 无条件脱敏（不再等线索）
           const isConfirmedHit = isConfirmed(sp.text, sp.start, out)
-    
+
           if (cue || isConfirmedHit) {
             // 有线索 或 用户已确认 → 脱敏
             out = out.slice(0, sp.start) + M2 + MASK_CN.person + M2 + out.slice(sp.end)
@@ -2000,7 +2000,7 @@
         }
         if (cnCount > 0) hits.push({ kind: 'personCn', count: cnCount, lang: 'cn' })
       }
-    
+
       // ---- L2b：英文姓名（大小写不敏感 + 全名） ----
       //
       // 覆盖用户实测的全部缺口：
@@ -2013,7 +2013,7 @@
       {
         let enCount = 0
         let work = out
-    
+
         // b1: 缩写称谓 + 任意大小写的姓
         //    Mr.liu / mr. liu / MR.LIU / mR.lIU 都要能识别，
         //    所以称谓本身大小写不敏感。
@@ -2042,7 +2042,7 @@
           const masked = parts.map(function (p) { return MASK_EN.personEn }).join('-')
           return M2 + g1 + '. ' + masked + M2
         })
-    
+
         // b2: 完整称谓 + 任意大小写的姓
         //    「my professor was not there」里的 professor 是小写泛称，
         //    所以完整称谓**必须首字母大写**才算锚点。
@@ -2062,7 +2062,7 @@
           const masked = parts.map(function (p) { return MASK_EN.personEn }).join('-')
           return M2 + g1 + ' ' + masked + M2
         })
-    
+
         // b2b: 姓 + 完整称谓（另一种语序）：Liu Professor / WANG Professor
         //      中式英语或简历写法里会出现。
         //      与 b2 不冲突 —— b2 是「称谓 + 姓」，这是「姓 + 称谓」。
@@ -2077,7 +2077,7 @@
             return M2 + masked + ' ' + g2 + M2
           })
         }
-    
+
         // b3: 纯姓形态（关系词锚定）：Liu is my advisor / LIU IS MY ADVISOR
         //     姓可以是任意大小写 —— 关系词已经提供了足够的上下文信号。
         //    姓必须在英文姓氏表里 —— 关系词已经提供了上下文，
@@ -2092,7 +2092,7 @@
           enCount++
           return M2 + MASK_EN.personEn + M2 + g2
         })
-    
+
         // b4: 关系词 + 姓（另一语序）：my advisor Liu / her supervisor Wang
         //    同理，人称与关系词都要保留 —— 只把姓换掉。
         const relThenName = /\b((?:my|our|his|her|their)\s+(?:advisor|supervisor|mentor|tutor|teacher|professor|boss|colleague|friend|roommate|partner)\s+)([A-Za-z]+)/gi
@@ -2101,7 +2101,7 @@
           enCount++
           return M2 + g1 + ' ' + MASK_EN.personEn + M2
         })
-    
+
         // b5: 全名（名 + 姓），两词都首字母大写或全小写：
         //     Ming Liu / ming liu
         //     要求后接动作动词或关系词，避免误伤 "new york"、"hong kong" 这类地名。
@@ -2130,7 +2130,7 @@
           enCount++
           return M2 + MASK_EN.personEn + ' ' + MASK_EN.personEn + M2
         })
-    
+
         // b6: 英文机构名 → ___ University
         //     机构词本身也要能匹配全大写（UNIVERSITY）。
         //     与 b5 不冲突 —— b5 要求末词是**姓氏**，而机构词不在姓氏表里。
@@ -2146,11 +2146,11 @@
           })
           if (orgCount > 0) hits.push({ kind: 'orgEn', count: orgCount, lang: 'en' })
         }
-    
+
         out = work
         if (enCount > 0) hits.push({ kind: 'personEn', count: enCount, lang: 'en' })
       }
-    
+
       // ---- L2c：标识符（学号 / 手机号 / 邮箱 / 社交账号 / 房间号） ----
       //
       // 这些信息同样能定位到个人，而且格式规整，可以用「关键词 + 格式」可靠识别。
@@ -2170,7 +2170,7 @@
           hits.push({ kind: 'identifier_' + kind, count: counts[kind], lang: 'cn' })
         }
       }
-    
+
       // ---- L2d：英文姓名（无称谓、无关系词的裸全名） ----
       //
       // b1~b6 都需要结构锚点（称谓/关系词/后接动词），
@@ -2205,7 +2205,7 @@
           }
         }
       }
-    
+
       // ---- L2e：院校简称 ----
       //
       // L1 的机构词规则要求「校名 + 大学/学院」这类带后缀的形式，
@@ -2234,7 +2234,7 @@
           }
         }
       }
-    
+
       // ---- L2f：拼音姓名（连写 / 姓在前）----
       //
       // b1~b6 与 L2d 都要求「空格分隔的名 + 姓」结构，
@@ -2261,7 +2261,7 @@
           const cand = pyNames[i]
           const cue = findEnCue(out, cand.start, cand.end)
           const isConfirmedHit = isConfirmed(cand.text, cand.start, out)
-    
+
           if (cue || isConfirmedHit) {
             // 有指人线索，或用户已确认 → 脱敏
             out = out.slice(0, cand.start) + M2 + MASK_EN.personEn + M2 + out.slice(cand.end)
@@ -2279,10 +2279,10 @@
           }
         }
       }
-    
+
       // 还原「的」，去掉所有标记
       out = out.split(M3).join('的').split(M2).join('').split(M1).join('').split(M4).join('')
-    
+
       // 清理孤立的闭合括号
       //
       // 嵌套括号场景：「星洲大学（自动化学院）」
@@ -2292,7 +2292,7 @@
       //
       // 这里扫描一遍，把没有配对左括号的闭合符号去掉。
       out = removeOrphanClosers(out)
-    
+
       // 重算疑似片段的位置
       //
       // 为什么必须重算：
@@ -2330,7 +2330,7 @@
           count: countOccurrences(out, s.text)
         })
       }
-    
+
       return {
         content: out,
         changed: out !== src,
@@ -2344,7 +2344,7 @@
         confirmedApplied: confirmedApplied
       }
     }
-    
+
     /**
      * 把 hits 汇总成「学校名称、姓名 + 称谓」这样的标签列表
      *
@@ -2364,7 +2364,7 @@
         return table[parts[0]] || parts[0]
       })
     }
-    
+
     /**
      * 导出
      *
@@ -2383,7 +2383,7 @@
       ORGS,
       VIRTUAL
     }
-    
+
     if (true) {
       module.exports = API
     }
