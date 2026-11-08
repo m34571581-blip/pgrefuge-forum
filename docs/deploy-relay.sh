@@ -14,7 +14,7 @@
 # 部署完成后脚本会打印 Worker 地址，把它填进：
 #   pgrefuge-forum/site/config.js
 #     oauthRelayBaseUrl: 'https://<你的-worker>.workers.dev'
-#     githubOAuthClientId: 'Iv1.<你的 Client ID>'
+#     githubOAuthClientId: '<你的 Client ID>'   # OAuth App 形如 Ov23li...，原样填入，不要加前缀
 #
 set -euo pipefail
 

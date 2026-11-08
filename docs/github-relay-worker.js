@@ -39,7 +39,7 @@
  *
  *   3. 把 Worker 地址填进站点配置 site/config.js：
  *        oauthRelayBaseUrl: 'https://pgrefuge-relay.<你的子域>.workers.dev',
- *        githubOAuthClientId: 'Iv1.xxxxxxxxxxxx'
+ *        githubOAuthClientId: 'Ov23lixxxxxxxxxxxx'
  *
  * 安全设计
  * --------

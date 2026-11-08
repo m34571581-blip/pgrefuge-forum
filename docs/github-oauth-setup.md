@@ -36,7 +36,7 @@ GitHub → 右上角头像 → **Settings** → 最下方 **Developer settings**
 
 **然后勾选「Enable Device Flow」**（页面底部），并保存。
 
-保存后拿到 **Client ID**（形如 `Iv1.abc123def456`）。
+保存后拿到 **Client ID**（形如 `Ov23liabc123def456`）。
 这是**公开标识符**，不是密钥 —— 放在前端是安全的。
 
 > 不需要 Client Secret —— Device Flow 的换 token 不需要它
@@ -137,7 +137,7 @@ window.PG_CONFIG = {
 
   // ↓ 填这两行
   oauthRelayBaseUrl: 'https://pgrefuge-relay.<你的子域>.workers.dev',
-  githubOAuthClientId: 'Iv1.abc123def456'
+  githubOAuthClientId: 'Ov23liabc123def456'
 };
 ```
 

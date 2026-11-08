@@ -59,7 +59,7 @@
 ## 填完之后
 
 1. 点 **Register application**
-2. 页面会显示 **Client ID**（形如 `Iv1.a1b2c3d4e5f6`）—— 这是公开标识符，可以放前端
+2. 页面会显示 **Client ID**（形如 `Ov23lia1b2c3d4e5f6`）—— 这是公开标识符，可以放前端
 3. **Client secret 不用复制**（用不上）
 
 然后把 Client ID 给我，我帮你写进 `site/config.js`。
@@ -87,7 +87,7 @@ bash pgrefuge-forum/docs/deploy-relay.sh
 
 ```js
 oauthRelayBaseUrl: 'https://pgrefuge-relay.<你的子域>.workers.dev',
-githubOAuthClientId: 'Iv1.a1b2c3d4e5f6'
+githubOAuthClientId: 'Ov23lia1b2c3d4e5f6'
 ```
 
 填完提交推送，Actions 会自动重新部署站点，
