@@ -258,8 +258,10 @@ GitHub 官方《Removing sensitive data from a repository》明确要求提供�
 
 **⚠️ 表单类别别选错**：Support 的表单按分类动态生成。
 「删除代码存储库」那个分类是**删整个仓库**的（最后有「请确认您的操作」，
-选「删除」不可恢复）。正确路径是 `Repositories → Something else / Other`，
-**判据是表单里必须有大文本框能写详细说明**。
+选「删除」不可恢复）。
+判据是**表单里必须有大文本框能写详细说明**；只有单选 + URL 输入框的是流程表单。
+免费账户的最终可选路径见本节末尾「提交入口」的结论——顶层「登录问题」，
+不要按早期的 `Repositories → Something else / Other` 去找（该选项在 fpt 账户不存在）。
 
 #### 关键：Support 只受理「敏感数据」
 
@@ -399,13 +401,40 @@ GitHub 官方《Removing sensitive data from a repository》明确要求提供�
 2. **回复确认邮件线程**，不要重复开单 —— 重复单据会拖慢处理。
 3. **等后台 GC** — 几小时到几周。
 
-#### ⚠️ 不要用「删仓库重建」这个方案
+#### 「删仓库重建」是最后手段，不是首选
 
-StackOverflow 上有说法称删仓库重建最快，**但那是错的** ——
-它会连带删掉 wiki、issues、评论、stars、Actions 记录和仓库设置。
-而 Support **可以在现有仓库上跑 GC**。
+社区主流建议是**不要删库**：
 
-社区原话：「don't delete the repo, because Support can run the cleanup on the existing one」
+> don't delete the repo, because Support can run the cleanup on the existing one
+
+理由：删库会连带删掉 wiki、issues、评论、stars、Actions 记录和仓库设置，
+而 Support 能在现有仓库上跑 GC，代价小得多。**默认应走这条路。**
+
+但本仓库有两个特殊情况，使删库重建成为可评估的备选：
+
+1. 免费账户的 Support 表单链路反复尝试仍未能稳定提交（见上面六轮修正）；
+2. 仓库里没有任何用户内容 —— 实测 issues / PR / discussions / stars /
+   forks / releases **全部为 0**，删库只丢 Actions 历史记录与仓库设置，
+   后者可由脚本还原。
+
+**⚠️ 三点必须说清楚，不要把推断当结论：**
+
+- 「删库后旧 SHA 立刻 404」**在本仓库未经实测**，属于合理推断。
+  脚本会在重建后自动取状态码验证，若仍可访问会明确告警，不谎报成功。
+- 一旦仓库里出现真实内容，本方案立刻作废，重新评估。
+- 删库需要 `delete_repo` scope；当前 token 只有 `gist, repo, workflow`，
+  所以删除动作**必须由本人在网页 Danger Zone 完成**，脚本无法代劳。
+
+**工具**：`scripts/recreate-repo.js`
+
+| 命令 | 行为 |
+|---|---|
+| `--dry-run` | 只清点与检查，绝不执行任何破坏性操作 |
+| `--confirm-delete` | 才真正执行；token 无权限时打印网页删除指引并退出 |
+| 网页删完后**重跑同一条命令** | 自动检测到仓库不存在，跳过删除，从「重建」继续 |
+
+执行前自动整目录备份（含 `.git` 全部历史）；重建后还原仓库开关、
+Discussions 分类、Pages（workflow 构建）、触发部署，最后验证旧链接。
 
 ---
 
