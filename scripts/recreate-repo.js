@@ -20,8 +20,12 @@
  * 丢掉 wiki、issues、评论、stars、Actions 记录与仓库设置。
  * 本脚本只适用于「Support 入口走不通 + 仓库没有真实内容」的情形。
  *
- * 「删库后旧 SHA 立刻 404」属于合理推断，**未经本仓库实测**。
- * 脚本末尾会自动验证并在仍可访问时明确告警，不把推断当结果。
+ * 2026-11-08 本仓库已实测：删库后 raw 404 / trees 422，同名重建后仍 404，
+ * 「立刻失效」成立。脚本末尾依然会实测验证，不把推断当结果。
+ *
+ * 已知无法自动化的部分：Discussion 分类。GitHub 没有创建分类的公开 API
+ * （REST 404、GraphQL 无 createDiscussionCategory），只能网页手动建；
+ * sync.js 已做分类缺失自动回退，站点不会因此坏掉。
  *
  * 用法
  * ----
@@ -235,35 +239,45 @@ async function inventory () {
   return { counts, nonEmpty }
 }
 
-/** 用 GraphQL 创建 Discussion 分类；失败则给网页指引，不中断主流程 */
-async function restoreCategories () {
-  const repoInfo = await api('GET', `/repos/${FULL}`)
-  const nodeId = repoInfo.data?.node_id
-  if (!nodeId) {
-    console.log('  ! 拿不到 repository node_id，请在网页手动创建分类')
-    printCategoryGuide()
+/**
+ * 检查 Discussions 分类是否齐全。
+ * GitHub **没有**创建分类的公开 API：REST /repos/.../discussions/categories
+ * 实测 404，GraphQL 也没有 createDiscussionCategory mutation（实测报字段不存在）。
+ * 所以只能检测 + 给网页指引，不要假装能自动创建。
+ * sync.js 已做「分类缺失自动回退到 General」，站点不会因此坏掉。
+ */
+async function checkCategories () {
+  const gql = await api('POST', '/graphql', {
+    query: `query($owner:String!,$name:String!){
+      repository(owner:$owner,name:$name){ discussionCategories(first:50){ nodes{ name slug } } }
+    }`,
+    variables: { owner: CONFIG.owner, name: CONFIG.repo }
+  })
+  const cats = gql.data?.data?.repository?.discussionCategories?.nodes || []
+  const existing = cats.map(c => c.name)
+  const missing = DISCUSSION_CATEGORIES.filter(c => existing.indexOf(c.name) === -1)
+
+  console.log('  现有分类：' + (cats.map(c => c.name).join('、') || '（读取失败）'))
+  if (!missing.length) {
+    console.log('  ✓ 目标分类齐全，无需操作')
     return
   }
-  for (const cat of DISCUSSION_CATEGORIES) {
-    const r = await api('POST', '/graphql', {
-      query: `mutation($repoId:ID!,$name:String!,$desc:String!){
-        createDiscussionCategory(input:{repositoryId:$repoId,name:$name,description:$desc,emoji:":speech_balloon:"}){
-          category{ id name slug }
-        }
-      }`,
-      variables: { repoId: nodeId, name: cat.name, desc: cat.description }
-    })
-    const created = r.data?.data?.createDiscussionCategory?.category
-    const err = r.data?.errors?.[0]?.message
-    console.log(`  ${created ? '✓' : '✗'} ${cat.name}${created ? '' : ' — ' + (err || r.data?.message || 'GraphQL 失败')}`)
-  }
+  console.log('')
+  console.log('  缺少：' + missing.map(c => c.name).join('、'))
+  console.log('  GitHub 未提供创建分类的公开 API，这 ' + missing.length + ' 个需要网页手动创建。')
+  console.log('  站点已由 sync.js 自动回退到 General，不创建也能正常发帖/展示。')
+  printCategoryGuide(missing)
 }
 
-function printCategoryGuide () {
+function printCategoryGuide (cats) {
   console.log('')
-  console.log('  重建后需要这 3 个分类（sync.yml 依赖 slug）：')
-  DISCUSSION_CATEGORIES.forEach(c => console.log(`    - ${c.name}：${c.description}`))
-  console.log(`  网页路径：https://github.com/${FULL}/discussions/categories → New category`)
+  console.log('  ── 手动创建路径 ──')
+  console.log(`  https://github.com/${FULL}/discussions/categories → New category`)
+  ;(cats || DISCUSSION_CATEGORIES).forEach(c => {
+    console.log(`    name: ${c.name}   description: ${c.description}`)
+    console.log('    format: Open-ended discussion（选它，便于回帖）')
+  })
+  console.log('  建好后下次同步会自动切回，无需改代码。')
 }
 
 async function main () {
@@ -325,7 +339,7 @@ async function main () {
       console.log(`    1. DELETE /repos/${FULL}（不可逆，需 --confirm-delete）`)
       console.log('    2. 用同名重建空仓库，还原 issues/wiki/projects/discussions 开关')
       console.log('    3. force push 本地干净历史')
-      console.log('    4. 恢复 Discussions 分类、启用 Pages（workflow）、触发部署')
+      console.log('    4. 检查 Discussions 分类（缺失时给网页指引）、启用 Pages、触发部署')
       console.log('    5. 自动验证旧链接是否 404（不把推断当结果）')
       console.log('')
       console.log('  若 token 无 delete_repo：脚本会停下并给网页删除指引，删完重跑同一命令即可续跑。')
@@ -396,9 +410,8 @@ async function main () {
   run('git push -u --force origin ' + branch)
   console.log('  ✓ 已推送')
 
-  section('8. 恢复 Discussions 分类')
-  await restoreCategories()
-  printCategoryGuide()
+  section('8. 检查 Discussions 分类')
+  await checkCategories()
 
   section('9. 启用 Pages（workflow 构建）')
   const pages = await api('POST', `/repos/${FULL}/pages`, { build_type: 'workflow' })

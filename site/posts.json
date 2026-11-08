@@ -8,9 +8,10 @@
     "withSensitiveHits": 0,
     "firstPostAt": null,
     "lastPostAt": null,
-    "generatedAt": "2026-11-01T07:58:46.018Z",
-    "categorySlug": "experiences",
-    "categoryName": "experiences"
+    "generatedAt": "2026-11-08T01:00:57.681Z",
+    "categorySlug": "general",
+    "categoryName": "General",
+    "categoryFallback": true
   },
   "posts": []
 }

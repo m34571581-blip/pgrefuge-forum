@@ -278,11 +278,38 @@ async function main() {
     )
   }
 
-  // 只保留目标分类下的主题。
-  // GitHub Discussions 建仓时自带 General / Q&A / Ideas 等默认分类，
-  // 如果不过滤，这些跟产品无关的内容会混进论坛数据里。
+  // GitHub 建仓/重建后只带 6 个默认分类，自定义分类会整体丢失。
+  // 官方既没有创建分类的 REST 端点，也没有 GraphQL mutation（都实测过 404 /
+  // 字段不存在），所以自定义分类只能网页手动建。
+  // 为了避免「分类还没建好 → 站点发帖链接失效 + 帖子被过滤掉」，
+  // 目标分类一个都不存在时自动回退到 General（或第一个非公告分类）。
+  // 关键：拉取过滤与发帖链接必须回退到同一个分类，否则用户从站点
+  // 点「发帖」发到 General，回来却因为过滤规则看不到自己的帖子。
+  const cats = (repoData.discussionCategories && repoData.discussionCategories.nodes) || []
+  const requestedNames = [CATEGORY, ...CATEGORY_ALIASES].filter(Boolean)
+  const existingNames = cats.map((c) => c.name)
+  const matchedNames = requestedNames.filter((n) => existingNames.indexOf(n) !== -1)
+
+  const fallbackCat =
+    cats.find((c) => c.slug === 'general') ||
+    cats.find((c) => c.slug !== 'announcements') ||
+    cats[0]
+  const usingFallback = matchedNames.length === 0 && !!fallbackCat
+  const acceptedNames = matchedNames.length
+    ? matchedNames
+    : (fallbackCat ? [fallbackCat.name] : requestedNames)
+
+  if (usingFallback) {
+    console.warn('')
+    console.warn(`⚠ 目标分类「${requestedNames.join('」「')}」在 GitHub 上不存在（常见于仓库重建后）。`)
+    console.warn(`  本次自动回退到「${fallbackCat.name}」：拉取与发帖链接都指向它。`)
+    console.warn('  在 Discussions → Categories 新建目标分类后，下次同步自动切回，无需改代码。')
+    console.warn('')
+  }
+
+  // 只保留目标分类下的主题。GitHub 默认的 General / Q&A / Ideas 等内容
+  // 跟产品无关，不过滤会混进论坛数据里。
   // 别名用于分类改名过渡期 —— 新旧分类名同时认，避免同步断档。
-  const acceptedNames = [CATEGORY, ...CATEGORY_ALIASES].filter(Boolean)
   const allDiscussions = repoData.discussions.nodes || []
   const discussions = acceptedNames.length
     ? allDiscussions.filter((d) => d.category && acceptedNames.indexOf(d.category.name) !== -1)
@@ -296,16 +323,14 @@ async function main() {
 
   // 分类名写错是最容易犯也最难发现的错误 —— 静默返回 0 条，
   // 站点看起来就是「没人发帖」，很难联想到是分类名不对。
-  if (acceptedNames.length && discussions.length === 0) {
-    const cats = (repoData.discussionCategories && repoData.discussionCategories.nodes) || []
+  if (discussions.length === 0) {
     console.warn('')
     console.warn('⚠ 没有拉到任何主题。可能原因：')
-    console.warn(`  · 分类名「${acceptedNames.join('」「')}」在 GitHub 上不存在（名称必须完全一致）`)
+    console.warn(`  · 分类「${acceptedNames.join('」「')}」下还没有人发帖`)
     if (cats.length) {
       console.warn('  · GitHub 上现有的分类是：' + cats.map((c) => c.name).join('、'))
     }
-    console.warn('  · 还没人在这个分类下发帖')
-    console.warn('  在仓库的 Discussions 页新建分类，或改 workflow 里的 GH_CATEGORY')
+    console.warn('  · 若分类名写错，请改 workflow 里的 GH_CATEGORY（名称必须完全一致）')
     console.warn('')
   }
 
@@ -401,16 +426,21 @@ async function main() {
   // 前端拼「写经历」链接时需要它 —— GitHub 的 /discussions/new?category=
   // 认的是 slug，而 ASCII 分类名的 slug 是小写转写（如 General → general），
   // 不能想当然用显示名。
-  const cats = (repoData.discussionCategories && repoData.discussionCategories.nodes) || []
-  // 优先取主分类的 slug；主分类还没建好时退回任一别名分类，
-  // 保证过渡期链接也指向正确的分类。
+  // 优先取主分类的 slug；主分类还没建好时退回别名分类，
+  // 再退回上面的回退分类（与拉取过滤保持一致）。
   const targetCat =
     cats.find((c) => c.name === CATEGORY) ||
-    cats.find((c) => acceptedNames.indexOf(c.name) !== -1)
+    cats.find((c) => acceptedNames.indexOf(c.name) !== -1) ||
+    fallbackCat
   if (targetCat) {
     stats.categorySlug = targetCat.slug
     stats.categoryName = targetCat.name
+  } else {
+    // 极端情况：仓库一个分类都没有，也要给前端一个能拼出链接的 slug
+    stats.categorySlug = 'general'
+    stats.categoryName = 'General'
   }
+  stats.categoryFallback = usingFallback
   posts.forEach((p) => {
     stats.taggedCounts[p.tag] = (stats.taggedCounts[p.tag] || 0) + 1
     stats.strategyCounts[p.strategy] = (stats.strategyCounts[p.strategy] || 0) + 1

@@ -419,8 +419,8 @@ GitHub 官方《Removing sensitive data from a repository》明确要求提供�
 
 **⚠️ 三点必须说清楚，不要把推断当结论：**
 
-- 「删库后旧 SHA 立刻 404」**在本仓库未经实测**，属于合理推断。
-  脚本会在重建后自动取状态码验证，若仍可访问会明确告警，不谎报成功。
+- **2026-11-08 实测结论：删库重建在本仓库确实有效**（详见下方实测记录），
+  不再是「未经实测的推断」。但换一个仓库/Timing 仍应重新验证，脚本末尾会实测。
 - 一旦仓库里出现真实内容，本方案立刻作废，重新评估。
 - 删库需要 `delete_repo` scope；当前 token 只有 `gist, repo, workflow`，
   所以删除动作**必须由本人在网页 Danger Zone 完成**，脚本无法代劳。
@@ -434,7 +434,41 @@ GitHub 官方《Removing sensitive data from a repository》明确要求提供�
 | 网页删完后**重跑同一条命令** | 自动检测到仓库不存在，跳过删除，从「重建」继续 |
 
 执行前自动整目录备份（含 `.git` 全部历史）；重建后还原仓库开关、
-Discussions 分类、Pages（workflow 构建）、触发部署，最后验证旧链接。
+Pages（workflow 构建）、触发部署，最后验证旧链接。
+⚠️ Discussions 分类无法自动还原（见下）。
+
+#### 实测记录（2026-11-08）
+
+| 时点 | `GET /repos` | 旧 raw 对象 | 旧 trees API | Pages 站点 |
+|---|---|---|---|---|
+| 删库前 | 200 | **200** | 200 | 200 |
+| 网页删库后 | 404 | **404** | 404 | — |
+| 同名重建 + push 后 | 200 | **404** | 422（对象不存在） | 200 |
+
+结论：删库后旧对象**立即不可达**，且同名重建不会把它带回来 ——
+新仓库是全新的对象集合。两个工作流（敏感信息检查 / 同步论坛数据）
+在重建后均跑通且 `success`。
+
+实际代价：89 条 Actions 历史记录、3 个 Discussions 自定义分类。
+仓库开关（issues / wiki / projects / discussions / Pages）已由脚本按线上实况还原。
+
+#### 重建后无法自动恢复的一项：Discussions 分类
+
+实测确认 GitHub **没有创建分类的公开 API**：
+
+| 尝试 | 结果 |
+|---|---|
+| `GET` / `POST /repos/{full}/discussions/categories` | 404 Not Found |
+| GraphQL `createDiscussionCategory` mutation | `Field doesn't exist on type 'Mutation'` |
+
+重建后仓库只剩 6 个默认分类（Announcements / General / Ideas /
+Polls / Q&A / Show and tell）。而 `sync.yml` 的 `GH_CATEGORY` 是 `experiences`，
+缺失时会导致帖子被过滤、前端「写经历」链接指向不存在的 slug。
+
+**修复**：`scripts/sync.js` 增加自动回退 —— 目标分类一个都不存在时，
+拉取过滤与发帖链接**同时**回退到 `General`（两者必须一致，否则用户
+从站点发完帖看不到自己的内容），并在 `stats.categoryFallback` 里标记。
+网页建回 `experiences` 后，下次同步自动切回，无需改代码。
 
 ---
 
