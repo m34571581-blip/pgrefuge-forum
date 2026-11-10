@@ -115,17 +115,20 @@ pgrefuge-forum/
 ├── scripts/
 │   ├── desensitize.js       # 脱敏引擎（与小程序端共用同一份规则）
 │   ├── sync.js              # 同步管道：拉取 → 脱敏 → 生成
+│   ├── harden-site.js       # 反逆向加固：site/ → dist/ + 三道等价校验
 │   └── eval.js              # 准确率评测 + 跨项目一致性校验
+├── dist/                    # 加固后的发布产物（生成物，不进 git）
 ├── data/
 │   ├── posts.json           # 数据集（结构化，可直接分析）
 │   └── .raw-cache.json      # 原始缓存（离线调试用）
 ├── .github/workflows/
-│   ├── sync.yml             # 每 6 小时自动同步 + 部署
+│   ├── sync.yml             # 每 30 分钟自动同步 + 加固 + 部署
 │   └── check-sensitive.yml  # 敏感信息检查（push / PR 都跑）
 ├── .githooks/
 │   └── pre-commit           # 提交前的敏感信息检查（本地防线）
 └── docs/
     ├── SETUP.md             # 部署步骤
+    ├── bla-hardening.md     # 反逆向加固：边界、实测、回滚
     └── sensitive-info-guard.md  # 敏感信息防护：预防与清除
 ```
 
@@ -235,6 +238,27 @@ node scripts/check-sensitive-history.js   # 整个 git 历史
 ```
 
 完整说明（含已泄露内容的清除流程）见 [`docs/sensitive-info-guard.md`](docs/sensitive-info-guard.md)。
+
+---
+
+## 发布产物加固（BLA）
+
+Pages 发布的不是 `site/` 源码，而是 `node scripts/harden-site.js` 生成的 `dist/` 加固版
+（BLA / Blind LLM Agents，针对 AI 自动化逆向代理投毒与预算爆破）。
+REA 暴露分从 78~98 降到 2，代价是站点体积约 3 倍（209 KiB → 629 KiB）。
+
+**边界要说实话**：仓库是公开的，`site/` 源码任何人都能直接读。
+这套加固防的是「扒线上站点 / AI 批量还原 JS」，**防不了直接看 GitHub 源码**，
+也不承诺对人肉逆向绝对保密。
+
+```bash
+node scripts/harden-site.js            # 生成 dist/ 并做符号冲突 / 语法 / 等价校验
+node scripts/harden-site.js --dry-run  # 只看计划，不写文件
+```
+
+`dist/` 已进 `.gitignore` —— BLA 会注入蜜罐假凭据，提交会（也应该）被敏感检查拦下。
+加固失败即中止部署，不会把功能残缺的站点推上线。
+完整实测数据、两个踩过的坑与回滚方式见 [`docs/bla-hardening.md`](docs/bla-hardening.md)。
 
 ---
 
