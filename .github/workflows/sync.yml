@@ -96,10 +96,21 @@ jobs:
             echo "内容无实质变化，跳过提交"
           fi
 
+      # 反逆向加固：把 site/ 生成成 dist/，Pages 只发布加固版。
+      # 为什么放在这里：sync.js 会重写 site/posts.json 与 site/desensitize.js，
+      # 必须在同步完成后再加固，否则发布的是旧内容。
+      #
+      # 脚本自带三道校验（全局符号冲突 / 语法 / 运行等价），任一失败即
+      # exit 1 → 本 workflow 失败 → 不会部署半成品。这是 fail-closed：
+      # 宁可这次不更新，也不能把「能打开但功能全废」的站点推上线。
+      # BLA 按需装到 runner 的临时目录，不需要仓库里有 package.json。
+      - name: 反逆向加固站点产物（BLA）
+        run: node scripts/harden-site.js
+
       - name: 部署到 GitHub Pages
         uses: actions/upload-pages-artifact@v4
         with:
-          path: site
+          path: dist
 
   deploy:
     needs: sync

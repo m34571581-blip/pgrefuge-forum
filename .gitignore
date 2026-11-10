@@ -43,6 +43,20 @@ __pycache__/
 *.sqlite-wal
 *.db
 
+# ---- BLA 反逆向加固产物 ----
+#
+# dist/ 是 node scripts/harden-site.js 生成的「发布版」站点，
+# 只在 GitHub Actions 里构建并直接交给 upload-pages-artifact，
+# 永远不进 git。原因有两个：
+#   1. 它是生成物，提交进去只会让每次改动产生巨大 diff；
+#   2. BLA 会往里注入蜜罐诱饵（看起来像凭据的假字符串），
+#      提交会触发 scripts/preflight.js 的敏感信息检查。
+# BLA 自己的状态文件同理。
+dist/
+.blarc
+.bla-hardened/
+.bla-manifest.json
+
 # 编辑器与系统
 .vscode/
 .idea/
